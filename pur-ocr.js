@@ -1,8 +1,6 @@
 /* OCR local para PUR digitalizado. Tudo roda no navegador, com arquivos de vendor/; o documento não sai da máquina.
  * Fluxo: passada rápida em todas as páginas sem texto para achar orientação, marcadores e quadros mensais;
  * depois releitura em alta resolução só das páginas com quadro mensal. */
-import {linesFromItems} from './pur-pdf.js';
-
 const BASE=new URL('./vendor/',import.meta.url).href,FAST=3,FINE=5;
 const norm=s=>String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/\s+/g,' ').trim();
 
@@ -14,14 +12,27 @@ export function textlessPages(pages,minChars=40){
  return pages.flatMap((lines,i)=>lines.filter(l=>!stamp(l.text)).map(l=>l.text).join('').replace(/\s/g,'').length<minChars?[i]:[]);
 }
 
-/* Corrige um número lido por OCR. Valores com centavos têm sempre dois dígitos no fim; o separador pode vir trocado. */
+/* Corrige um número lido por OCR. Valores com centavos têm sempre dois dígitos no fim; o separador pode vir trocado ou sumir. */
 export function repairNumber(text){
- const t=String(text).replace(/[|[\]{}!]/g,'').trim();
- if(/^[-–—~_=.]{1,3}$/.test(t))return '-';
- if(!/^[\dOoIlSB.,\s]+$/.test(t)||!/\d/.test(t))return t;
+ let t=String(text).replace(/[|[\]{}!]/g,'').trim();
+ if(/^[-–—~_=.:;]{1,3}$/.test(t))return '-';
+ if(/^\d{1,2}\/\d{2,4}$/.test(t)||!/^[-–—~_.,:;\s]*\d[\d.,/OoIlSB\s]*[-–—~_.,:;]*$/.test(t))return t;
+ t=t.replace(/^[-–—~_.,:;\s]+/,'').replace(/[-–—~_.,:;\s]+$/,'').replace(/([.,])\//g,'$17').replace(/\/([.,])/g,'7$1').replace(/\/(\d{2})$/,',$1').replace(/\//g,'7');
  const fixed=t.replace(/[Oo]/g,'0').replace(/[Il]/g,'1').replace(/S/g,'5').replace(/B/g,'8').replace(/\s/g,'');
- if(!/[.,]\d{2}$/.test(fixed))return fixed;
+ if(!/[.,]\d{2}$/.test(fixed)&&!/^\d{6,}$/.test(fixed))return fixed;
  const d=fixed.replace(/\D/g,'');return d.slice(0,-2)+','+d.slice(-2);
+}
+
+const distance=(a,b)=>{if(a===b)return 0;if(a.length<b.length)[a,b]=[b,a];if(a.length-b.length>1)return 2;let i=0;while(i<b.length&&a[i]===b[i])i++;return a.length===b.length?(a.slice(i+1)===b.slice(i+1)?1:2):(a.slice(i+1)===b.slice(i)?1:2);};
+const cents=v=>v.toFixed(2).replace('.','');
+/* Compara a soma de uma rubrica com o total do quadro. Se um único valor, trocando um dígito, fecha a soma, ele é corrigido. */
+export function reconcile(values,total){
+ const sum=values.reduce((s,v)=>s+(v||0),0),diff=sum-total;
+ if(Math.abs(diff)<.015)return {ok:true,sum};
+ const hits=[];values.forEach((v,m)=>{if(v===null)return;const want=Math.round((v-diff)*100)/100;if(want>=0&&distance(cents(v),cents(want))<=1)hits.push({m,want});});
+ if(hits.length===1)return {ok:true,sum,fixed:hits[0]};
+ if(!hits.length&&distance(cents(sum),cents(total))<=1)return {ok:true,sum,totalMisread:true};
+ return {ok:false,sum};
 }
 
 /* Reconstrói o cabeçalho mensal. O OCR pode separar "Mês" de "01", trocar um dígito ou perder uma coluna inteira.
@@ -48,10 +59,27 @@ export function repairHeader(line){
  return {...line,cells:all,text:all.map(c=>c.text).join(' ')};
 }
 
+const numeric=t=>/^[-–—]?[\d.,]*\d[\d.,]*$/.test(t);
+/* Agrupa palavras em linhas e células. Números vizinhos nunca se juntam, porque as colunas mensais ficam muito próximas. */
+function linesOf(items){
+ const lines=[];
+ for(const it of [...items].sort((a,b)=>b.y-a.y||a.x-b.x)){const tol=Math.max(2,it.h*.45);let line=lines.find(l=>Math.abs(l.y-it.y)<=tol);if(!line){line={y:it.y,items:[]};lines.push(line);}line.items.push(it);}
+ lines.sort((a,b)=>b.y-a.y);
+ return lines.map(l=>{
+  const cells=[];
+  for(const it of l.items.sort((a,b)=>a.x-b.x)){const last=cells[cells.length-1],gap=last?it.x-last.x1:Infinity;
+   const fragment=last&&/^\d{1,3}$/.test(last.text)&&/^\d{3}/.test(it.text);
+   if(last&&gap<Math.max(2,it.h*.7)&&(fragment||(!numeric(it.text)&&!numeric(last.text)))){last.text+=(fragment?'':' ')+it.text;last.x1=Math.max(last.x1,it.x+it.w);}
+   else cells.push({x0:it.x,x1:it.x+it.w,text:it.text});}
+  for(const c of cells)c.xc=(c.x0+c.x1)/2;
+  return {y:l.y,cells,text:cells.map(c=>c.text).join(' ')};
+ });
+}
+
 /* Converte palavras do OCR em linhas no mesmo formato do leitor de PDF. Coordenadas em pontos, com y crescendo para cima. */
 export function wordsToLines(words,scale,height){
- const items=words.map(w=>({text:w.text,x:w.x0/scale,y:(height-w.y1)/scale,w:(w.x1-w.x0)/scale,h:Math.max(1,(w.y1-w.y0)/scale)})).filter(i=>i.text.trim());
- return linesFromItems(items).map(line=>{
+ const items=words.map(w=>({text:w.text.replace(/[|[\]{}]/g,''),x:w.x0/scale,y:(height-w.y1)/scale,w:(w.x1-w.x0)/scale,h:Math.max(1,(w.y1-w.y0)/scale)})).filter(i=>i.text.trim());
+ return linesOf(items).map(line=>{
   const cells=line.cells.map(c=>({...c,text:repairNumber(c.text)})).filter(c=>c.text);
   return repairHeader({...line,cells,text:cells.map(c=>c.text).join(' ')});
  });
@@ -79,10 +107,13 @@ async function render(page,scale,rotation){
  return canvas;
 }
 
-/* Tons de cinza com fundo claro limpo: o preenchimento verde das tabelas e as linhas finas atrapalham o reconhecimento. */
-function clean(canvas){
- const ctx=canvas.getContext('2d',{willReadFrequently:true}),img=ctx.getImageData(0,0,canvas.width,canvas.height),d=img.data;
- for(let i=0;i<d.length;i+=4){const g=.3*d[i]+.59*d[i+1]+.11*d[i+2],v=g>=175?255:g<=95?0:(g-95)*255/80;d[i]=d[i+1]=d[i+2]=v;}
+/* Tons de cinza, fundo limpo e sem as linhas de grade, que o OCR confunde com letras e que escondem o cabeçalho dos quadros. */
+function clean(canvas,scale){
+ const ctx=canvas.getContext('2d',{willReadFrequently:true}),W=canvas.width,H=canvas.height,img=ctx.getImageData(0,0,W,H),d=img.data,dark=new Uint8Array(W*H),kill=new Uint8Array(W*H),L=Math.round(14*scale);
+ for(let i=0;i<W*H;i++){const g=.3*d[i*4]+.59*d[i*4+1]+.11*d[i*4+2],v=g>=175?255:g<=95?0:(g-95)*255/80;d[i*4]=d[i*4+1]=d[i*4+2]=v;dark[i]=v<190?1:0;}
+ for(let y=0;y<H;y++){let s=-1;for(let x=0;x<=W;x++){const on=x<W&&dark[y*W+x];if(on&&s<0)s=x;if(!on&&s>=0){if(x-s>=L)for(let k=s;k<x;k++)kill[y*W+k]=1;s=-1;}}}
+ for(let x=0;x<W;x++){let s=-1;for(let y=0;y<=H;y++){const on=y<H&&dark[y*W+x];if(on&&s<0)s=y;if(!on&&s>=0){if(y-s>=L)for(let k=s;k<y;k++)kill[k*W+x]=1;s=-1;}}}
+ for(let i=0;i<W*H;i++)if(kill[i])d[i*4]=d[i*4+1]=d[i*4+2]=255;
  ctx.putImageData(img,0,0);return canvas;
 }
 
@@ -94,15 +125,16 @@ async function read(worker,canvas,psm){
 async function fastPass(worker,page){
  let canvas=await render(page,FAST,0),rotation=looksSideways(canvas)?90:0;
  if(rotation)canvas=await render(page,FAST,rotation);
- let words=await read(worker,clean(canvas),6),best=quality(words);
+ let words=await read(worker,clean(canvas,FAST),6),best=quality(words);
  if(best<400)for(const alt of [0,90,270].filter(r=>r!==rotation)){
-  const c=await render(page,FAST,alt),w=await read(worker,clean(c),6),q=quality(w);
+  const c=await render(page,FAST,alt),w=await read(worker,clean(c,FAST),6),q=quality(w);
   if(q>best){best=q;words=w;rotation=alt;canvas=c;}
   if(best>=400)break;}
  return {words,rotation,height:canvas.height};
 }
 
-const monthly=lines=>lines.some(l=>(norm(l.text).match(/\bm\S{1,3} ?\d{1,2}\b/g)||[]).length>=4);
+/* Quadro mensal: cabeçalho com meses, título de cronograma ou linha com muitos valores. A passada rápida nem sempre lê o cabeçalho. */
+const monthly=lines=>lines.some(l=>/cronograma/.test(norm(l.text))||(norm(l.text).match(/\bm\S{1,3} ?\d{1,2}\b/g)||[]).length>=4||l.cells.filter(c=>/\d,\d{2}$/.test(c.text)).length>=8);
 
 const memory=new Map();
 /* Lê as páginas indicadas e devolve {índice: linhas}. O resultado fica em memória até recarregar a página. */
@@ -120,7 +152,7 @@ export async function ocrPages(file,buffer,indices,onProgress=()=>{}){
   await run(indices,async(w,i)=>{const page=await doc.getPage(i+1),r=await fastPass(w,page);rotations[i]=r.rotation;lines[i]=wordsToLines(r.words,FAST,r.height);page.cleanup();});
   const tables=indices.filter(i=>monthly(lines[i]));
   onProgress('Relendo os quadros mensais em alta resolução…');
-  await run(tables,async(w,i)=>{const page=await doc.getPage(i+1),canvas=clean(await render(page,FINE,rotations[i])),words=await read(w,canvas,6);lines[i]=wordsToLines(words,FINE,canvas.height);page.cleanup();});
+  await run(tables,async(w,i)=>{const page=await doc.getPage(i+1),canvas=clean(await render(page,FINE,rotations[i]),FINE),words=await read(w,canvas,6);lines[i]=wordsToLines(words,FINE,canvas.height);page.cleanup();});
   const result={lines,tables,rotations,pages:indices.length};memory.set(key,result);return result;
  }finally{await Promise.allSettled(workers.map(w=>w.terminate()));await doc.destroy();}
 }

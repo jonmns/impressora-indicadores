@@ -2,7 +2,7 @@
  * Depende do leitor já existente do projeto e não altera o tratamento do financeiro. */
 import {pdfPages,parsePur,linesFromItems} from './pur-pdf.js';
 import {durationFromText} from './engine.js';
-import {textlessPages,ocrPages} from './pur-ocr.js';
+import {textlessPages,ocrPages,reconcile} from './pur-ocr.js';
 
 const normalize=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\s+/g,' ').trim();
 const marker=s=>{
@@ -93,8 +93,9 @@ export async function readPurPdf(file,options={}){
   }
  }
  if(ocr){
-  const rows=Object.entries(result.totals).map(([cat,total])=>{const sum=result.values[cat][2].reduce((s,v)=>s+(v||0),0);return {cat,total,sum,ok:Math.abs(sum-total)<.015};});
-  // Traço de célula vazia costuma sumir no OCR. Se a soma dos valores lidos já bate com o total, as células sem leitura valem zero.
+  const rows=Object.entries(result.totals).map(([cat,total])=>({cat,total,...reconcile(result.values[cat][2],total)}));
+  for(const r of rows.filter(r=>r.fixed)){const {m,want}=r.fixed,old=result.values[r.cat][2][m];result.values[r.cat][2][m]=want;result.sources[r.cat][2][m]+=`, valor lido ${old} corrigido pela soma da linha`;result.notices.unshift(`OCR: ${r.cat}, mês ${m+1}: valor lido ${old} corrigido para ${want} para fechar com o total do quadro. Confira.`);}
+  // Traço de célula vazia pode sumir no OCR. Se a soma dos valores lidos já bate com o total, as células sem leitura valem zero.
   for(const r of rows.filter(r=>r.ok))result.values[r.cat][2].forEach((v,m,a)=>{if(v===null){a[m]=0;result.sources[r.cat][2][m]=`${file.name}: célula sem valor, soma da linha confere com o total`;}});
   for(const r of rows.filter(r=>!r.ok))result.notices.unshift(`OCR: em ${r.cat} a soma dos meses (${r.sum.toFixed(2)}) difere do total do quadro (${r.total.toFixed(2)}). Confira essa rubrica no PDF.`);
   const ok=rows.filter(r=>r.ok).length;
