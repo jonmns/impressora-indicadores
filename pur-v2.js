@@ -2,6 +2,7 @@
  * Depende do leitor já existente do projeto e não altera o tratamento do financeiro. */
 import {pdfPages,parsePur,linesFromItems} from './pur-pdf.js';
 import {durationFromText} from './engine.js';
+import {textlessPages,ocrPages} from './pur-ocr.js';
 
 const normalize=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\s+/g,' ').trim();
 const marker=s=>{
@@ -63,6 +64,14 @@ export async function readPurPdf(file,options={}){
   const rotated=await rotatedPages(buffer);
   if(durationFromHeaders(rotated))pages=pages.map((original,i)=>[...original,...rotated[i]]);
  }
+ let ocr=null;
+ if(!durationFromHeaders(pages)){
+  const blank=textlessPages(pages);
+  if(blank.length){
+   ocr=await ocrPages(file,buffer,blank,(a,b)=>options.onProgress?.(b?`Lendo o PDF digitalizado (OCR): página ${a} de ${b}…`:a));
+   pages=pages.map((lines,i)=>ocr.lines[i]||lines);
+  }
+ }
  const full=pages.flatMap(p=>p.map(l=>l.text)).join('\n');
  const adendo=/adendo|termo aditivo|apostilamento/i.test(file.name+' '+full.slice(0,12000));
  const selected=filterCurrent(pages,adendo);
@@ -70,7 +79,7 @@ export async function readPurPdf(file,options={}){
  if(adendo&&!selected.filtered && selected.hasPara)throw Error('Não foi possível isolar com segurança o quadro PARA do adendo. Confira a estrutura do PDF.');
  if(adendo&&!selected.hasPara)throw Error('Este documento parece ser um adendo, mas não identifiquei claramente o quadro PARA. Para evitar valores desatualizados, use um PDF com texto selecionável e estrutura DE/PARA legível.');
  const relevant=selected.filtered?selected.pages:pages;
- const result=parsePur(relevant,{...options});
+ const result=parsePur(relevant,{start:options.start,duration:options.duration,file:file.name});
  const byHeader=durationFromHeaders(relevant);
  const byText=durationFromText(relevant.flatMap(p=>p.map(l=>l.text)).join('\n'));
  const found=[result.duration,byHeader,byText].filter(Number.isInteger);
@@ -82,6 +91,15 @@ export async function readPurPdf(file,options={}){
    const a=result.values[cat][row],s=result.sources[cat][row];
    if(a.length<chosen){while(a.length<chosen){a.push(null);s.push(null);}}else{a.length=chosen;s.length=chosen;}
   }
+ }
+ if(ocr){
+  const rows=Object.entries(result.totals).map(([cat,total])=>{const sum=result.values[cat][2].reduce((s,v)=>s+(v||0),0);return {cat,total,sum,ok:Math.abs(sum-total)<.015};});
+  // Traço de célula vazia costuma sumir no OCR. Se a soma dos valores lidos já bate com o total, as células sem leitura valem zero.
+  for(const r of rows.filter(r=>r.ok))result.values[r.cat][2].forEach((v,m,a)=>{if(v===null){a[m]=0;result.sources[r.cat][2][m]=`${file.name}: célula sem valor, soma da linha confere com o total`;}});
+  for(const r of rows.filter(r=>!r.ok))result.notices.unshift(`OCR: em ${r.cat} a soma dos meses (${r.sum.toFixed(2)}) difere do total do quadro (${r.total.toFixed(2)}). Confira essa rubrica no PDF.`);
+  const ok=rows.filter(r=>r.ok).length;
+  result.notices.unshift(`PDF digitalizado: valores lidos por OCR em ${ocr.pages} páginas. ${rows.length?`${ok} de ${rows.length} rubricas conferem com o total do quadro. `:''}Confira cada valor com o PDF antes de gerar o relatório.`);
+  for(const cat of Object.keys(result.sources))for(const row of Object.keys(result.sources[cat]))result.sources[cat][row]=result.sources[cat][row].map(s=>s&&`${s} (OCR)`);
  }
  if(selected.filtered)result.notices.unshift('Adendo: leitura limitada aos trechos identificados como PARA. Confira se as demais rubricas não alteradas estão completas; um adendo parcial pode exigir o PUR consolidado.');
  if(adendo&&!selected.hasDe)result.notices.unshift('Adendo: foi encontrado PARA sem DE. Verifique a integridade do documento.');

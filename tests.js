@@ -1,6 +1,7 @@
 import {categories,NS,openWorkbook,extract,exportWorkbook,missing,calculated,number,month,financialInfo,durationFromText} from './engine.js';
 import {pdfPages,parsePur,pdfNumber} from './pur-pdf.js';
 import {readPurPdf} from './pur-v2.js';
+import {textlessPages,repairNumber,repairHeader,wordsToLines} from './pur-ocr.js';
 /* PDF mínimo com texto posicionado (Helvetica), para testar a leitura real pelo pdf.js sem documentos privados. */
 function makePdf(pages){
  const objs=[],enc=s=>s.replace(/\\/g,'\\\\').replace(/\(/g,'\\(').replace(/\)/g,'\\)');
@@ -68,6 +69,12 @@ try{
  const mesAno=['set/26','out/26','nov/26','dez/26','jan/27','fev/27'],semMes=makePdf([[{x:30,y:540,text:'Rubrica'},...mesAno.map((t,i)=>({x:200+i*50,y:540,text:t})),{x:30,y:525,text:'V - Materiais de consumo'},...mesAno.map((_,i)=>({x:200+i*50,y:525,text:'7,50'}))]]);
  const reread=await readPurPdf(new File([semMes],'PUR_mes_ano.pdf',{type:'application/pdf'}),{start:month('2026-09')});
  assert(reread.values.Materiais[2][1]===7.5,'PDF: segunda leitura não falha com buffer desanexado');
+ assert(repairNumber('75.367.96')==='75367,96'&&repairNumber('75,367,96')==='75367,96'&&repairNumber('3 7l0,16')==='3710,16'&&repairNumber('—')==='-'&&repairNumber('160')==='160'&&repairNumber('Total')==='Total','OCR: números corrigidos');
+ const headCells=[['Rubrica',10],['Mês O1',100],['Més 02',140],['Mês 08',180],['Mês',220],['04',235],['Mês 05',260],['Mês 07',300],['TOTAL',380]].map(([text,x])=>({text,x0:x,x1:x+(text.length>3?28:10),xc:x+14}));
+ const head=repairHeader({cells:headCells,text:''}).cells.map(c=>c.text);assert(head.join()==='Rubrica,Mês 01,Mês 02,Mês 03,Mês 04,Mês 05,Mês 06,TOTAL','OCR: cabeçalho reconstruído');
+ const gap=repairHeader({cells:[100,140,220,260,300].map((x,i)=>({text:'Mês '+[1,2,4,5,6][i],x0:x,x1:x+28,xc:x+14})),text:''}).cells.map(c=>c.text);assert(gap.length===6&&gap[2]==='Mês 03','OCR: coluna perdida volta pelo espaçamento');
+ const stamp=Array.from({length:6},()=>[{text:'Assinado digitalmente por Fulano'}]);stamp[4]=[...stamp[4],{text:'x'.repeat(200)}];assert(textlessPages(stamp).join()==='0,1,2,3,5','OCR: carimbo repetido não conta como texto');
+ assert(wordsToLines([{text:'Para:',x0:100,y0:100,x1:150,y1:120}],1,800)[0].text==='Para:','OCR: palavras viram linhas');
  const info=financialInfo(fin);assert(info.project==='Projeto sintético'&&info.start===month(46266)&&info.lastClosed===month(46266),'financeiro: projeto, início e última competência realizada');
  assert(durationFromText('Prazo de execução: 15 (quinze) meses')===15&&durationFromText('A duração do projeto é de 12 meses')===12&&durationFromText('Mês 1 Mês 2')===null&&durationFromText('prazo de 30 dias')===null,'duração lida do texto do PUR');
  const auto=parsePur(pages,{start,file:'PUR_sintetico.pdf'});assert(auto.duration===12&&auto.values.Equipamentos[2].length===12,'duração deduzida do cronograma quando o texto não informa');

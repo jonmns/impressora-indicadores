@@ -1,4 +1,4 @@
-/* Leitor de PUR / adendo em PDF. Usa a camada de texto do PDF (sem OCR) e reconstrói linhas e colunas pela posição. */
+/* Leitor de PUR / adendo em PDF. Usa a camada de texto do PDF e reconstrói linhas e colunas pela posição. */
 import {categories,norm,rubrica,durationFromText} from './engine.js';
 
 let pdfjs=null;
@@ -91,7 +91,7 @@ const isTotal=s=>/^(sub\s*)?total/.test(norm(s));
 export function parsePur(pages,{duration:given,start,file='PUR.pdf'}){
  const duration=given||24,values={},sources={},notices=[];
  for(const cat of categories){values[cat]={2:Array(duration).fill(null)};sources[cat]={2:Array(duration).fill(null)};if(cat==='RHD'||cat==='RHI')for(const r of [10,15]){values[cat][r]=Array(duration).fill(null);sources[cat][r]=Array(duration).fill(null);}}
- const functions={RHD:new Map(),RHI:new Map()},seen=new Set();let headers=0,hoursTables=0;
+ const totals={},functions={RHD:new Map(),RHI:new Map()},seen=new Set();let headers=0,hoursTables=0;
  pages.forEach((lines,p)=>{
   let header=null,kind='money',group=null,pending='';
   lines.forEach((line,i)=>{
@@ -116,6 +116,7 @@ export function parsePur(pages,{duration:given,start,file='PUR.pdf'}){
    if(isTotal(own)){pending='';if(kind==='hours')group=null;return;}
    if(kind==='money'){
     const cat=candidates.map(rubrica).find(Boolean);pending='';if(!cat)return;
+    const beyond=line.cells.filter(c=>c.x1>header.lastX&&pdfNumber(c.text)!==null).pop();if(beyond&&!(cat in totals))totals[cat]=pdfNumber(beyond.text);
     for(const {m,n} of nums){if(m>=duration)continue;const key=`${cat}|${m}`;
      if(seen.has(key)){if(values[cat][2][m]!==n)notices.push(`${cat}, mês ${m+1}: o PDF tem mais de um valor planejado (${values[cat][2][m]} e ${n}). Foi mantido o primeiro; confira.`);continue;}
      seen.add(key);values[cat][2][m]=n;sources[cat][2][m]=`${where}, linha "${candidates.find(c=>rubrica(c)===cat)}"`;}
@@ -139,7 +140,7 @@ export function parsePur(pages,{duration:given,start,file='PUR.pdf'}){
    values[cat][10][m]=people.size;sources[cat][10][m]=`${file}: funções distintas com horas > 0; conferir vagas com a mesma função`;}
   notices.push(`${cat}: profissionais previstos no PDF foram contados por função distinta. Confira se há duas ou mais vagas com a mesma função.`);}
  const text=pages.map((lines,p)=>`— Página ${p+1} —\n`+lines.map(l=>l.text).join('\n')).join('\n\n');
- if(!text.replace(/— Página \d+ —/g,'').trim())notices.push('O PDF não tem camada de texto (parece digitalizado). OCR não está disponível: use a versão digital do PUR ou a planilha de apoio.');
+ if(!text.replace(/— Página \d+ —/g,'').trim())notices.push('O PDF não tem texto legível, nem pelo OCR. Use a versão digital do PUR ou a planilha de apoio.');
  else if(!headers)notices.push('Não encontrei no PDF uma tabela com cabeçalho mensal (Mês 1, M1, jan/26…). Complete o planejado na conferência ou envie a planilha de apoio.');
  else if(!hoursTables)notices.push('O PDF não tem quadro de horas por mês reconhecido. Horas e profissionais previstos ficam pendentes, a menos que a planilha de apoio os traga.');
  let detected=given||null;
@@ -151,7 +152,7 @@ export function parsePur(pages,{duration:given,start,file='PUR.pdf'}){
   else if(last>=0){detected=last+1;notices.push(`Duração deduzida do cronograma do PUR: ${detected} meses (o texto não informa o prazo). Confira.`);}
   if(detected){for(const cat of categories)for(const row of Object.keys(values[cat])){values[cat][row].length=detected;sources[cat][row].length=detected;}}
  }
- return {values,sources,notices:[...new Set(notices)],text,duration:detected};
+ return {values,sources,totals,notices:[...new Set(notices)],text,duration:detected};
 }
 
 export async function readPurPdf(file,options){return parsePur(await pdfPages(await file.arrayBuffer()),{...options,file:file.name});}

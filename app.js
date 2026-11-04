@@ -19,7 +19,7 @@ $('analyze').addEventListener('click',async()=>{
  const info=financialInfo(f);if(info.start===null)throw Error('Não encontrei o início do projeto na Posição Financeira (célula L1 ou competências na linha 7).');
  const start=info.start,isPdf=/\.pdf$/i.test(pur.name);let pdf=null,reference='',duration=null;
  status(isPdf?'Lendo o PUR em PDF…':'Lendo o PUR em Word…');
- if(isPdf){pdf=await readPurPdf(pur,{start});reference=pdf.text;duration=pdf.duration;}else{reference=await referenceText(pur);duration=durationFromText(reference)||planDuration(p);}
+ if(isPdf){pdf=await readPurPdf(pur,{start,onProgress:t=>status(t)});reference=pdf.text;duration=pdf.duration;}else{reference=await referenceText(pur);duration=durationFromText(reference)||planDuration(p);}
  if(!duration)throw Error('Não encontrei a quantidade de meses no PUR. Verifique se o PDF tem texto selecionável ou envie a planilha de apoio.');
  const closed=month($('closed').value)-start+1;
  if(closed<1||closed>duration)throw Error(`A competência de fechamento ${label(month($('closed').value))} está fora do projeto (${label(start)} a ${label(start+duration-1)}, ${duration} meses).`);

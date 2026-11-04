@@ -26,4 +26,4 @@ REGRAS
 - Não foi possível testar contra o PDF real apenas pelas capturas de tela.
 - Quadros PARA parciais NÃO substituem dados de rubricas não mencionadas:
   campos ausentes devem ser conferidos/completados na revisão.
-- PDF escaneado sem texto selecionável continua fora do escopo (sem OCR).
+- PDF escaneado é lido por OCR local; confira cada valor com o PDF.
