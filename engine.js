@@ -37,15 +37,15 @@ function rowsOf(s){return [...new Set(Object.keys(s.cells).map(a=>+a.match(/\d+/
 function monthsHeader(s){for(const r of rowsOf(s).slice(0,20)){const map={};for(let c=1;c<=60;c++){const m=norm(at(s,r,c)).match(/^(?:mes\s*|m)(\d{1,2})$/);if(m)map[+m[1]-1]=c;}if(Object.keys(map).length>=6)return {r,map};}return null;}
 function cached(s,a){const c=s.cells[a];return numeric(c?.value)?c.value:(c?.formula?null:c?.value===null||!c?0:null);}
 export function extract(fin,plan,options){
- const {start,duration,closed}=options;const data={...options,values:{},sources:{},notices:[],files:{}};
+ const {start,duration,closed,pdf}=options;const data={...options,values:{},sources:{},notices:[],files:{}};delete data.pdf;
  for(const cat of categories){data.values[cat]={};data.sources[cat]={};for(const r of cat==='RHD'||cat==='RHI'?[2,3,10,11,15,16]:[2,3]){data.values[cat][r]=Array(duration).fill(null);data.sources[cat][r]=Array(duration).fill('Não identificado');}}
  // Plan schedule is the authoritative planned source. No silent fallback to old financial baseline.
- let schedule=Object.values(plan.sheets).find(s=>norm(s.name).includes('cronograma fisico'))||findSheet(plan,'valores previstos');
+ plan=plan||{sheets:{}};let schedule=Object.values(plan.sheets).find(s=>norm(s.name).includes('cronograma fisico'))||findSheet(plan,'valores previstos');
  const header=schedule&&monthsHeader(schedule);
  if(header){for(const r of rowsOf(schedule).filter(r=>r>header.r)){
   let cat=null;for(let c=1;c<=3&&!cat;c++)cat=rubrica(at(schedule,r,c));if(!cat)continue;
   for(let m=0;m<duration;m++){const c=header.map[m];if(c)set(data,cat,2,m,cached(schedule,col(c)+r),`${schedule.name}!${col(c)}${r}`);}
- }}else data.notices.push('Cronograma mensal do plano não reconhecido. Complete o planejado na conferência.');
+ }}else if(schedule)data.notices.push('Cronograma mensal da planilha de apoio não reconhecido.');
  // Monthly RH assignments in the support workbook. A function repeated in multiple stages is counted once per month.
  const rh=findSheet(plan,'plano de trabalho');let group=null,head=null;const rhParts={RHD:[],RHI:[]};
  if(rh)for(const r of rowsOf(rh)){
@@ -58,6 +58,8 @@ export function extract(fin,plan,options){
   for(const p of rhParts[cat]){if(!p.head[m]){missing=true;continue;}const a=col(p.head[m])+p.r;const v=cached(rh,a);if(v===null){missing=true;continue;}sum+=v;if(v>0)people.add(norm(p.label));refs.push(a);}
   set(data,cat,15,m,missing?null:sum,`${rh.name}!${refs.join(',')}`);set(data,cat,10,m,missing?null:people.size,`${rh.name}: funções distintas com horas > 0; conferir vagas com mesma função`);
  }data.notices.push(`${cat}: profissionais previstos foram contados por função distinta. Confira se existem duas ou mais vagas com o mesmo nome de função.`);}
+ if(pdf)applyPdf(data,pdf);
+ if(categories.every(cat=>data.values[cat][2].every(v=>v===null)))data.notices.push('Cronograma mensal de dispêndios não reconhecido no PUR nem na planilha de apoio. Complete o planejado na conferência.');
  const pos=findSheet(fin,'posicao financeira');if(!pos)throw Error('Não encontrei a aba Posição Financeira no relatório financeiro.');
  const project=pos.get('C6');data.detectedProject=typeof project==='string'?project:'';
  const detectedStart=month(pos.get('L1'));if(detectedStart!==null&&detectedStart!==start)data.notices.push('O início informado difere da célula L1 da Posição Financeira. Confira a competência inicial antes de exportar.');
@@ -77,6 +79,16 @@ export function extract(fin,plan,options){
  }
  if(missing(data)&&Object.values(fin.sheets).some(s=>Object.values(s.cells).some(c=>c.formula&&c.value===null)))data.notices.push('Há fórmulas sem resultado salvo no financeiro. Se uma pendência depender delas, recalcule e salve o arquivo no Excel antes de importar novamente.');
  data.notices=[...new Set(data.notices)];return data;
+}
+/* O PUR em PDF é a fonte principal do planejado; a planilha de apoio só completa o que o PDF não trouxe. */
+function applyPdf(data,pdf){
+ const diverge=[];
+ for(const cat of categories)for(const row of Object.keys(pdf.values[cat]||{}))for(let m=0;m<data.duration;m++){
+  const v=pdf.values[cat][row][m];if(v===null||v===undefined)continue;const old=data.values[cat][row][m];
+  if(old!==null&&Math.abs(old-v)>.005)diverge.push(`${cat} ${inputRows[row]} mês ${m+1}`);
+  set(data,cat,+row,m,v,pdf.sources[cat][row][m]);}
+ if(diverge.length)data.notices.push(`PUR em PDF e planilha de apoio divergem em ${diverge.length} campo(s); foi usado o PDF: ${diverge.slice(0,8).join(', ')}${diverge.length>8?'…':''}.`);
+ data.notices.push(...pdf.notices);
 }
 export function missing(data){let n=0;for(const cat of categories)for(const [row,values]of Object.entries(data.values[cat]))for(let m=0;m<values.length;m++){if([3,11,16].includes(+row)&&m>=data.closed)continue;if(values[m]===null)n++;}return n;}
 export function calculated(data,cat,row,m){const v=data.values[cat];if(v[row])return v[row][m];let a,b;if(row===4)a=2;if(row===5)a=3;if(row===17)a=15;if(row===18)a=16;if(a){const values=v[a].slice(0,m+1);if(values.some(x=>x===null))return null;return values.reduce((x,y)=>x+y,0);}if(row===6){a=calculated(data,cat,5,m);b=calculated(data,cat,4,m);}if(row===19){a=calculated(data,cat,18,m);b=calculated(data,cat,17,m);}return a===null||b===null?null:b===0?'#DIV/0!':a/b;}

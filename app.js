@@ -1,14 +1,21 @@
 import {categories,inputRows,openWorkbook,extract,missing,calculated,exportWorkbook,referenceText,number,month} from './engine.js';
+import {readPurPdf} from './pur-pdf.js';
 const $=id=>document.getElementById(id);let data=null,active=categories[0],snapshot='';
 const format=(v,pct=false)=>v===null?'Pendente':typeof v==='string'?v:new Intl.NumberFormat('pt-BR',{maximumFractionDigits:2,...(pct?{style:'percent'}:{})}).format(v);
 function status(t,error=false){$('status').textContent=t;$('status').classList.toggle('error',error);}
 function signature(){return JSON.stringify(['project','start','duration','closed','approved'].map(id=>$(id).type==='checkbox'?$(id).checked:$(id).value));}
 function invalidate(){data=null;$('review').hidden=true;$('reviewed').checked=false;status('Documentos ou parâmetros alterados. Extraia novamente para atualizar a conferência.');}
-for(const id of ['finance','plan','reference','template','project','start','duration','closed','approved'])$(id).addEventListener('change',invalidate);
+for(const id of ['finance','pur','plan','template','project','start','duration','closed','approved'])$(id).addEventListener('change',invalidate);
 $('analyze').addEventListener('click',async()=>{
- try{data=null;$('review').hidden=true;const fin=$('finance').files[0],plan=$('plan').files[0];if(!fin||!plan)throw Error('Selecione o financeiro preenchido e a planilha de apoio do plano.');if(!$('approved').checked)throw Error('Confirme a versão aprovada do plano.');if(!/^\d{4}-\d{2}$/.test($('start').value))throw Error('Informe o início do projeto.');const duration=+$('duration').value,closed=+$('closed').value;if(!Number.isInteger(duration)||duration<1||duration>24||!Number.isInteger(closed)||closed<1||closed>duration)throw Error('Use duração entre 1 e 24 meses e fechamento dentro da duração.');for(const f of [fin,plan])if(f.size>30*1024*1024)throw Error('Cada arquivo deve ter até 30 MB.');status('Lendo os documentos e cruzando as competências…');$('analyze').disabled=true;
- const [f,p]=await Promise.all([openWorkbook(await fin.arrayBuffer(),'financial'),openWorkbook(await plan.arrayBuffer(),'plan')]);data=extract(f,p,{project:$('project').value.trim(),start:month($('start').value),duration,closed});data.files={financial:fin.name,plan:plan.name,reference:$('reference').files[0]?.name||null,template:$('template').files[0]?.name||'Modelo interno equivalente'};
- $('refbox').hidden=true;if($('reference').files[0]){$('reftext').textContent=await referenceText($('reference').files[0]);$('refbox').hidden=false;}
+ try{data=null;$('review').hidden=true;const fin=$('finance').files[0],pur=$('pur').files[0],plan=$('plan').files[0];if(!fin||!pur)throw Error('Selecione a planilha financeira preenchida e o PUR (ou último adendo).');if(!$('approved').checked)throw Error('Confirme que o PUR é o último adendo aprovado.');if(!/^\d{4}-\d{2}$/.test($('start').value))throw Error('Informe o início do projeto.');const duration=+$('duration').value,closed=+$('closed').value;if(!Number.isInteger(duration)||duration<1||duration>24||!Number.isInteger(closed)||closed<1||closed>duration)throw Error('Use duração entre 1 e 24 meses e fechamento dentro da duração.');for(const f of [fin,pur,plan].filter(Boolean))if(f.size>30*1024*1024)throw Error('Cada arquivo deve ter até 30 MB.');$('analyze').disabled=true;
+ const start=month($('start').value),isPdf=/\.pdf$/i.test(pur.name);let pdf=null,reference='';
+ status(isPdf?'Lendo o PUR em PDF…':'Lendo o PUR em Word…');
+ if(isPdf){pdf=await readPurPdf(pur,{duration,start});reference=pdf.text;}else reference=await referenceText(pur);
+ status('Lendo a planilha financeira e cruzando as competências…');
+ const [f,p]=await Promise.all([openWorkbook(await fin.arrayBuffer(),'financial'),plan?openWorkbook(await plan.arrayBuffer(),'plan'):null]);
+ data=extract(f,p,{project:$('project').value.trim(),start,duration,closed,pdf});if(!isPdf)data.notices.unshift('PUR em Word serve só para consulta: o planejado vem da planilha de apoio ou da conferência manual.');
+ data.files={financial:fin.name,pur:pur.name,plan:plan?.name||null,template:$('template').files[0]?.name||'Modelo interno equivalente'};
+ $('reftext').textContent=reference;$('refbox').hidden=!reference;
  snapshot=signature();$('reviewed').checked=false;active=categories[0];$('review').hidden=false;renderNotices();render();status('Extração concluída. Confira os campos pendentes e as fontes.');$('review').scrollIntoView({behavior:'smooth',block:'start'});
  }catch(e){status(e.message||'Não foi possível ler os arquivos.',true);}finally{$('analyze').disabled=false;}
 });
