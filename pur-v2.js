@@ -29,7 +29,7 @@ function durationFromHeaders(pages){
 async function rotatedPages(buffer){
  const pdfjs=await import('./vendor/pdf.min.mjs');
  pdfjs.GlobalWorkerOptions.workerSrc=new URL('./vendor/pdf.worker.min.mjs',import.meta.url).href;
- const doc=await pdfjs.getDocument({data:new Uint8Array(buffer),isEvalSupported:false,enableXfa:false,verbosity:0}).promise;
+ const doc=await pdfjs.getDocument({data:new Uint8Array(buffer).slice(),isEvalSupported:false,enableXfa:false,verbosity:0}).promise;
  const pages=[];
  try{
   for(let n=1;n<=doc.numPages;n++){

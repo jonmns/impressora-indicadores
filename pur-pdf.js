@@ -10,7 +10,8 @@ async function loadPdfjs(){
 /* Lê o PDF e devolve páginas com linhas; cada linha tem células {x0,x1,xc,text}. */
 export async function pdfPages(buffer){
  const lib=await loadPdfjs();
- const doc=await lib.getDocument({data:new Uint8Array(buffer),isEvalSupported:false,enableXfa:false,disableFontFace:true,useSystemFonts:false,verbosity:0}).promise;
+ // O pdf.js transfere os bytes para o worker e desanexa o buffer recebido; .slice() entrega uma cópia e preserva o original para nova leitura.
+ const doc=await lib.getDocument({data:new Uint8Array(buffer).slice(),isEvalSupported:false,enableXfa:false,disableFontFace:true,useSystemFonts:false,verbosity:0}).promise;
  if(doc.numPages>300)throw Error('PDF com mais de 300 páginas.');
  const pages=[];
  for(let p=1;p<=doc.numPages;p++){

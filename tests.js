@@ -1,5 +1,6 @@
 import {categories,NS,openWorkbook,extract,exportWorkbook,missing,calculated,number,month,financialInfo,durationFromText} from './engine.js';
 import {pdfPages,parsePur,pdfNumber} from './pur-pdf.js';
+import {readPurPdf} from './pur-v2.js';
 /* PDF mínimo com texto posicionado (Helvetica), para testar a leitura real pelo pdf.js sem documentos privados. */
 function makePdf(pages){
  const objs=[],enc=s=>s.replace(/\\/g,'\\\\').replace(/\(/g,'\\(').replace(/\)/g,'\\)');
@@ -64,6 +65,9 @@ try{
  const both=extract(fin,plan,{project:'Sintético',start,duration:12,closed:1,pdf:pur});assert(both.values.Equipamentos[2][0]===1000&&both.values.Materiais[2][0]===104,'PDF prevalece, planilha completa');assert(both.notices.some(n=>n.includes('divergem')),'divergência avisada');
  const rotated=parsePur([[{y:1,cells:[{x0:0,x1:5,xc:2,text:'Rubrica'},...Array.from({length:6},(_,i)=>({x0:100+i*40,x1:120+i*40,xc:110+i*40,text:['set/26','out/26','nov/26','dez/26','jan/27','fev/27'][i]}))],text:''},{y:0,cells:[{x0:0,x1:60,xc:30,text:'Materiais de consumo'},{x0:140,x1:160,xc:150,text:'7,5'}],text:''}]],{duration:12,start:month('2026-09')});
  assert(rotated.values.Materiais[2][1]===7.5,'PDF: cabeçalho jan/26 vira mês do projeto');
+ const mesAno=['set/26','out/26','nov/26','dez/26','jan/27','fev/27'],semMes=makePdf([[{x:30,y:540,text:'Rubrica'},...mesAno.map((t,i)=>({x:200+i*50,y:540,text:t})),{x:30,y:525,text:'V - Materiais de consumo'},...mesAno.map((_,i)=>({x:200+i*50,y:525,text:'7,50'}))]]);
+ const reread=await readPurPdf(new File([semMes],'PUR_mes_ano.pdf',{type:'application/pdf'}),{start:month('2026-09')});
+ assert(reread.values.Materiais[2][1]===7.5,'PDF: segunda leitura não falha com buffer desanexado');
  const info=financialInfo(fin);assert(info.project==='Projeto sintético'&&info.start===month(46266)&&info.lastClosed===month(46266),'financeiro: projeto, início e última competência realizada');
  assert(durationFromText('Prazo de execução: 15 (quinze) meses')===15&&durationFromText('A duração do projeto é de 12 meses')===12&&durationFromText('Mês 1 Mês 2')===null&&durationFromText('prazo de 30 dias')===null,'duração lida do texto do PUR');
  const auto=parsePur(pages,{start,file:'PUR_sintetico.pdf'});assert(auto.duration===12&&auto.values.Equipamentos[2].length===12,'duração deduzida do cronograma quando o texto não informa');
