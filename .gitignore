@@ -1,0 +1,8 @@
+node_modules/
+work/
+*.xlsx
+*.xlsm
+*.docx
+*.pdf
+*_Memoria.json
+.env*
