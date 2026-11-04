@@ -1,0 +1,5 @@
+.drop-zone{position:relative;transition:border-color .15s,background-color .15s;outline-offset:3px}
+.drop-zone.drag-over{border:2px dashed #26744f!important;background:#e4f4e9!important}
+.drop-zone.drop-error{border-color:#bd5042!important}
+.drop-hint{font-size:12px;color:#47735d;line-height:1.5;overflow-wrap:anywhere}
+@media (prefers-color-scheme:dark){.drop-zone.drag-over{background:#183d2b!important}}
