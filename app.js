@@ -1,22 +1,35 @@
-import {categories,inputRows,openWorkbook,extract,missing,calculated,exportWorkbook,referenceText,number,month} from './engine.js';
+import {categories,inputRows,openWorkbook,extract,missing,calculated,exportWorkbook,referenceText,number,month,financialInfo,durationFromText,planDuration} from './engine.js';
 import {readPurPdf} from './pur-pdf.js';
 const $=id=>document.getElementById(id);let data=null,active=categories[0],snapshot='';
 const format=(v,pct=false)=>v===null?'Pendente':typeof v==='string'?v:new Intl.NumberFormat('pt-BR',{maximumFractionDigits:2,...(pct?{style:'percent'}:{})}).format(v);
 function status(t,error=false){$('status').textContent=t;$('status').classList.toggle('error',error);}
-function signature(){return JSON.stringify(['project','start','duration','closed','approved'].map(id=>$(id).type==='checkbox'?$(id).checked:$(id).value));}
+function signature(){return JSON.stringify(['closed','approved'].map(id=>$(id).type==='checkbox'?$(id).checked:$(id).value));}
 function invalidate(){data=null;$('review').hidden=true;$('reviewed').checked=false;status('Documentos ou parâmetros alterados. Extraia novamente para atualizar a conferência.');}
-for(const id of ['finance','pur','plan','template','project','start','duration','closed','approved'])$(id).addEventListener('change',invalidate);
+const ym=mm=>`${Math.floor(mm/12)}-${String(mm%12+1).padStart(2,'0')}`,label=mm=>`${String(mm%12+1).padStart(2,'0')}/${Math.floor(mm/12)}`;
+for(const id of ['finance','pur','plan','template','closed','approved'])$(id).addEventListener('change',invalidate);
+/* Ao escolher o financeiro, mostra o que foi identificado nele e sugere a última competência realizada. */
+$('finance').addEventListener('change',async()=>{const f=$('finance').files[0];$('detected').textContent='';if(!f)return;
+ try{const info=financialInfo(await openWorkbook(await f.arrayBuffer(),'financial'));
+  const parts=[];if(info.project)parts.push('Projeto: '+info.project);if(info.start!==null)parts.push('início: '+label(info.start));
+  $('detected').textContent=parts.length?'Identificado no financeiro — '+parts.join(' · ')+'. O prazo é lido do PUR.':'';
+  if(info.lastClosed!==null&&!$('closed').value)$('closed').value=ym(info.lastClosed);}catch{}});
 $('analyze').addEventListener('click',async()=>{
- try{data=null;$('review').hidden=true;const fin=$('finance').files[0],pur=$('pur').files[0],plan=$('plan').files[0];if(!fin||!pur)throw Error('Selecione a planilha financeira preenchida e o PUR (ou último adendo).');if(!$('approved').checked)throw Error('Confirme que o PUR é o último adendo aprovado.');if(!/^\d{4}-\d{2}$/.test($('start').value))throw Error('Informe o início do projeto.');const duration=+$('duration').value,closed=+$('closed').value;if(!Number.isInteger(duration)||duration<1||duration>24||!Number.isInteger(closed)||closed<1||closed>duration)throw Error('Use duração entre 1 e 24 meses e fechamento dentro da duração.');for(const f of [fin,pur,plan].filter(Boolean))if(f.size>30*1024*1024)throw Error('Cada arquivo deve ter até 30 MB.');$('analyze').disabled=true;
- const start=month($('start').value),isPdf=/\.pdf$/i.test(pur.name);let pdf=null,reference='';
- status(isPdf?'Lendo o PUR em PDF…':'Lendo o PUR em Word…');
- if(isPdf){pdf=await readPurPdf(pur,{duration,start});reference=pdf.text;}else reference=await referenceText(pur);
- status('Lendo a planilha financeira e cruzando as competências…');
+ try{data=null;$('review').hidden=true;const fin=$('finance').files[0],pur=$('pur').files[0],plan=$('plan').files[0];if(!fin||!pur)throw Error('Selecione a planilha financeira preenchida e o PUR (ou último adendo).');if(!$('approved').checked)throw Error('Confirme que o PUR é o último adendo aprovado.');if(!/^\d{4}-\d{2}$/.test($('closed').value))throw Error('Informe a competência do fechamento (mês/ano).');for(const f of [fin,pur,plan].filter(Boolean))if(f.size>30*1024*1024)throw Error('Cada arquivo deve ter até 30 MB.');$('analyze').disabled=true;
+ status('Lendo a planilha financeira…');
  const [f,p]=await Promise.all([openWorkbook(await fin.arrayBuffer(),'financial'),plan?openWorkbook(await plan.arrayBuffer(),'plan'):null]);
- data=extract(f,p,{project:$('project').value.trim(),start,duration,closed,pdf});if(!isPdf)data.notices.unshift('PUR em Word serve só para consulta: o planejado vem da planilha de apoio ou da conferência manual.');
+ const info=financialInfo(f);if(info.start===null)throw Error('Não encontrei o início do projeto na Posição Financeira (célula L1 ou competências na linha 7).');
+ const start=info.start,isPdf=/\.pdf$/i.test(pur.name);let pdf=null,reference='',duration=null;
+ status(isPdf?'Lendo o PUR em PDF…':'Lendo o PUR em Word…');
+ if(isPdf){pdf=await readPurPdf(pur,{start});reference=pdf.text;duration=pdf.duration;}else{reference=await referenceText(pur);duration=durationFromText(reference)||planDuration(p);}
+ if(!duration)throw Error('Não encontrei a quantidade de meses no PUR. Use o PUR em PDF com o cronograma mensal ou envie a planilha de apoio.');
+ const closed=month($('closed').value)-start+1;
+ if(closed<1||closed>duration)throw Error(`A competência de fechamento ${label(month($('closed').value))} está fora do projeto (${label(start)} a ${label(start+duration-1)}, ${duration} meses).`);
+ status('Cruzando as competências…');
+ data=extract(f,p,{project:info.project,start,duration,closed,pdf});if(!isPdf)data.notices.unshift('PUR em Word serve só para consulta: o planejado vem da planilha de apoio ou da conferência manual.');
+ data.notices.unshift(`Início ${label(start)} (financeiro), ${duration} meses (PUR), fechamento ${label(month($('closed').value))} = mês ${closed}.`);
  data.files={financial:fin.name,pur:pur.name,plan:plan?.name||null,template:$('template').files[0]?.name||'Modelo interno equivalente'};
  $('reftext').textContent=reference;$('refbox').hidden=!reference;
- snapshot=signature();$('reviewed').checked=false;active=categories[0];$('review').hidden=false;renderNotices();render();status('Extração concluída. Confira os campos pendentes e as fontes.');$('review').scrollIntoView({behavior:'smooth',block:'start'});
+ snapshot=signature();$('reviewed').checked=false;active=categories[0];$('review').hidden=false;renderNotices();render();status('Extração concluída. Confira os campos pendentes e as fontes, marque a conferência e clique em Gerar relatório .xlsx.');$('review').scrollIntoView({behavior:'smooth',block:'start'});
  }catch(e){status(e.message||'Não foi possível ler os arquivos.',true);}finally{$('analyze').disabled=false;}
 });
 function renderNotices(){const root=$('notices');root.replaceChildren();for(const n of data.notices){const d=document.createElement('div');d.className='notice';d.textContent=n;root.append(d);}if(data.detectedProject){const d=document.createElement('p');d.className='help';d.textContent='Nome identificado no financeiro: '+data.detectedProject;root.prepend(d);}}

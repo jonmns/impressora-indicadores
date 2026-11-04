@@ -36,6 +36,26 @@ function at(s,r,c){return s.get(col(c)+r);}
 function rowsOf(s){return [...new Set(Object.keys(s.cells).map(a=>+a.match(/\d+/)[0]))].sort((a,b)=>a-b);}
 function monthsHeader(s){for(const r of rowsOf(s).slice(0,20)){const map={};for(let c=1;c<=60;c++){const m=norm(at(s,r,c)).match(/^(?:mes\s*|m)(\d{1,2})$/);if(m)map[+m[1]-1]=c;}if(Object.keys(map).length>=6)return {r,map};}return null;}
 function cached(s,a){const c=s.cells[a];return numeric(c?.value)?c.value:(c?.formula?null:c?.value===null||!c?0:null);}
+
+/* Dados que já estão nos documentos: projeto e início (Posição Financeira), última competência realizada, duração (texto do PUR ou planilha de apoio). */
+export function financialInfo(fin){
+ const pos=findSheet(fin,'posicao financeira');if(!pos)throw Error('Não encontrei a aba Posição Financeira no relatório financeiro.');
+ const comps=[];for(let c=13;c<=80;c++){const mm=month(at(pos,7,c));if(mm!==null)comps.push({mm,real:norm(at(pos,6,c))==='realizado'});}
+ let start=month(pos.get('L1'));if(start===null&&comps.length)start=comps[0].mm;
+ const done=comps.filter(x=>x.real&&start!==null&&x.mm>=start).map(x=>x.mm);
+ const project=pos.get('C6');
+ return {project:typeof project==='string'?project.trim():'',start,lastClosed:done.length?Math.max(...done):null};
+}
+export function durationFromText(text){
+ const s=norm(text);
+ for(const re of [/(?:prazo|duracao|vigencia|periodo)[^0-9]{0,60}?(\d{1,2})\s*(?:\([^)]*\)\s*)?mes(?:es)?\b/,/\b(\d{1,2})\s*(?:\([^)]*\)\s*)?mes(?:es)?\s*(?:de\s+)?(?:execucao|duracao|vigencia)/]){
+  const m=s.match(re);if(m&&+m[1]>=1&&+m[1]<=24)return +m[1];}
+ return null;
+}
+export function planDuration(plan){
+ if(!plan)return null;const schedule=Object.values(plan.sheets).find(s=>norm(s.name).includes('cronograma fisico'))||findSheet(plan,'valores previstos');
+ const header=schedule&&monthsHeader(schedule);if(!header)return null;const n=Math.max(...Object.keys(header.map).map(Number))+1;return n>=1&&n<=24?n:null;
+}
 export function extract(fin,plan,options){
  const {start,duration,closed,pdf}=options;const data={...options,values:{},sources:{},notices:[],files:{}};delete data.pdf;
  for(const cat of categories){data.values[cat]={};data.sources[cat]={};for(const r of cat==='RHD'||cat==='RHI'?[2,3,10,11,15,16]:[2,3]){data.values[cat][r]=Array(duration).fill(null);data.sources[cat][r]=Array(duration).fill('Não identificado');}}

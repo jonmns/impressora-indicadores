@@ -6,7 +6,7 @@ Aplicação estática para extrair dados da planilha financeira PPI 4.0 e do PUR
 
 1. Selecione o financeiro mensal **já calculado e salvo no Excel** (.xlsx/.xlsm).
 2. Selecione o **PUR ou último adendo aprovado em PDF** (com texto selecionável). Um .docx também é aceito, só para consulta.
-3. Informe o início real, duração (até 24 meses) e último mês fechado. Mês 1 é o primeiro mês do projeto.
+3. Informe apenas a **competência do fechamento** (mês/ano). O projeto e o início vêm da Posição Financeira (célula L1), e a quantidade de meses vem do PUR (texto de prazo ou cronograma mensal; até 24 meses). Ao escolher o financeiro, o campo é sugerido com a última competência marcada como Realizado.
 4. Confira as fontes, corrija os campos pendentes e valide as contagens de RH.
 5. Gere o Excel e, se necessário, baixe a memória JSON com os arquivos, células de origem e ajustes manuais.
 
@@ -27,7 +27,7 @@ Opcionalmente, selecione a planilha de apoio do PUR (.xlsx/.xlsm) para completar
 
 ## Executar e hospedar
 
-Sirva a pasta com qualquer servidor estático. Exemplo: `python -m http.server 8080`. Não há instalação ou build. No GitHub: Settings → Pages → Deploy from a branch → main → /(root). Abra `tests.html` no servidor para executar os testes com dados sintéticos, incluindo a exportação em 12 e 24 meses e a leitura de um PUR em PDF sintético gerado no próprio teste.
+**Não abra o index.html com duplo clique** (endereço file://): o Chrome bloqueia os módulos JavaScript e o leitor de PDF, e o botão Extrair não faz nada. Use o endereço do GitHub Pages ou sirva a pasta com qualquer servidor estático. Exemplo: `python -m http.server 8080`. Não há instalação ou build. No GitHub: Settings → Pages → Deploy from a branch → main → /(root). Abra `tests.html` no servidor para executar os testes com dados sintéticos, incluindo a exportação em 12 e 24 meses e a leitura de um PUR em PDF sintético gerado no próprio teste.
 
 ## Arquitetura
 

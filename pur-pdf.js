@@ -1,5 +1,5 @@
 /* Leitor de PUR / adendo em PDF. Usa a camada de texto do PDF (sem OCR) e reconstrói linhas e colunas pela posição. */
-import {categories,norm,rubrica} from './engine.js';
+import {categories,norm,rubrica,durationFromText} from './engine.js';
 
 let pdfjs=null;
 async function loadPdfjs(){
@@ -87,8 +87,8 @@ function columnOf(header,cell){
 const isTotal=s=>/^(sub\s*)?total/.test(norm(s));
 
 /* Interpreta as linhas do PDF e devolve valores planejados por rubrica e mês. Função pura, testável sem PDF. */
-export function parsePur(pages,{duration,start,file='PUR.pdf'}){
- const values={},sources={},notices=[];
+export function parsePur(pages,{duration:given,start,file='PUR.pdf'}){
+ const duration=given||24,values={},sources={},notices=[];
  for(const cat of categories){values[cat]={2:Array(duration).fill(null)};sources[cat]={2:Array(duration).fill(null)};if(cat==='RHD'||cat==='RHI')for(const r of [10,15]){values[cat][r]=Array(duration).fill(null);sources[cat][r]=Array(duration).fill(null);}}
  const functions={RHD:new Map(),RHI:new Map()},seen=new Set();let headers=0,hoursTables=0;
  pages.forEach((lines,p)=>{
@@ -141,7 +141,16 @@ export function parsePur(pages,{duration,start,file='PUR.pdf'}){
  if(!text.replace(/— Página \d+ —/g,'').trim())notices.push('O PDF não tem camada de texto (parece digitalizado). OCR não está disponível: use a versão digital do PUR ou a planilha de apoio.');
  else if(!headers)notices.push('Não encontrei no PDF uma tabela com cabeçalho mensal (Mês 1, M1, jan/26…). Complete o planejado na conferência ou envie a planilha de apoio.');
  else if(!hoursTables)notices.push('O PDF não tem quadro de horas por mês reconhecido. Horas e profissionais previstos ficam pendentes, a menos que a planilha de apoio os traga.');
- return {values,sources,notices:[...new Set(notices)],text};
+ let detected=given||null;
+ if(!given){
+  // A duração vem do próprio PUR: texto "prazo/duração de N meses"; sem texto, o último mês com valor planejado diferente de zero.
+  let last=-1;for(const cat of categories)for(const row of Object.keys(values[cat]))values[cat][row].forEach((v,m)=>{if(v!==null&&v!==0)last=Math.max(last,m);});
+  const fromText=durationFromText(text);
+  if(fromText){detected=fromText;if(last+1>fromText)notices.push(`O PUR informa ${fromText} meses, mas há valores planejados até o mês ${last+1}. Confira a duração.`);}
+  else if(last>=0){detected=last+1;notices.push(`Duração deduzida do cronograma do PUR: ${detected} meses (o texto não informa o prazo). Confira.`);}
+  if(detected){for(const cat of categories)for(const row of Object.keys(values[cat])){values[cat][row].length=detected;sources[cat][row].length=detected;}}
+ }
+ return {values,sources,notices:[...new Set(notices)],text,duration:detected};
 }
 
 export async function readPurPdf(file,options){return parsePur(await pdfPages(await file.arrayBuffer()),{...options,file:file.name});}
