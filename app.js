@@ -1,6 +1,8 @@
 import {purId,contractPur,checkIdentity,checkClosing} from './controls.js';
 import {categories,inputRows,openWorkbook,extract,missing,calculated,exportWorkbook,referenceText,number,month,financialInfo,durationFromText,planDuration,spreadPlanned,buildChecks,openChecks,answerCheck} from './engine.js';
 import {readPurPdf} from './pur-v2.js';
+import {openResolver} from './resolve.js';
+let sourceFiles={financial:null,pur:null};
 const $=id=>document.getElementById(id);let data=null,abort=null,active=categories[0],snapshot='';
 const format=(v,pct=false)=>v===null?'Pendente':typeof v==='string'?v:new Intl.NumberFormat('pt-BR',{maximumFractionDigits:2,...(pct?{style:'percent'}:{})}).format(v);
 function status(t,error=false){$('status').textContent=t;$('status').classList.toggle('error',error);}
@@ -56,7 +58,7 @@ $('analyze').addEventListener('click',async()=>{
  if(!isPdf)data.notices.unshift('PUR em Word serve só para consulta: o planejado vem da planilha de apoio ou da conferência manual.');
  data.notices.unshift(`Início ${label(start)} (financeiro), ${duration} meses (PUR), fechamento ${label(month($('closed').value))} = mês ${closed}.`);
  if(pdf?.adendo?.usedPara)data.notices.unshift('Fonte do adendo: quadros PARA. Confira se o documento é consolidado e se as rubricas não alteradas estão contempladas.');
- data.checks=buildChecks(data);
+ data.checks=buildChecks(data);sourceFiles={financial:f,pur};
  data.files={financial:fin.name,pur:pur.name,plan:plan?.name||null,template:$('template').files[0]?.name||'Modelo interno equivalente'};
  $('reftext').textContent=reference;$('refbox').hidden=!reference;
  snapshot=signature();$('reviewed').checked=false;active=categories[0];$('review').hidden=false;renderNotices();render();status('Extração concluída. Confira os campos pendentes e as fontes, marque a conferência e clique em Gerar relatório .xlsx.');$('review').scrollIntoView({behavior:'smooth',block:'start'});
@@ -72,8 +74,9 @@ function renderNotices(){const root=$('notices');root.replaceChildren();
  const btn=(text,fn,cls='secondary')=>{const b=document.createElement('button');b.type='button';b.className=cls;b.textContent=text;b.addEventListener('click',fn);return b;};
  for(const c of data.checks){const d=document.createElement('div');d.className='check'+(c.answer?' answered':'');d.id='check-'+c.id;
   const t=document.createElement('p');t.textContent=c.text;const a=document.createElement('div');a.className='check-actions';
-  if(c.answer){const s=document.createElement('span');s.className='check-done';s.textContent=c.answer==='confirmado'?'✓ Confirmado':'✓ Corrigido na tabela';a.append(s,btn('Desfazer',()=>answer(c.id,null),'link'));}
-  else{a.append(btn('Confirmo, está correto',()=>answer(c.id,'confirmado')),btn('Corrigi na tabela',()=>answer(c.id,'corrigido')));if(c.cat)a.append(btn(`Abrir ${c.cat}`,()=>{active=c.cat;render();$('tabs').scrollIntoView({behavior:'smooth',block:'start'});},'link'));}
+  const resolve=()=>openResolver(c,{data,files:sourceFiles,onDone:msg=>{renderNotices();render();status(msg+' Registrado na memória de preenchimento.');}});
+  if(c.answer){const s=document.createElement('span');s.className='check-done';s.textContent=c.answer==='confirmado'?'✓ Confirmado':'✓ Corrigido';a.append(s,btn('Rever',resolve,'link'),btn('Desfazer',()=>answer(c.id,null),'link'));}
+  else a.append(btn('Resolver →',resolve,'primary small'));
   d.append(t,a);root.append(d);}
 }
 function answer(id,value){try{answerCheck(data,id,value);renderNotices();updateCounts();status(value?'Resposta registrada na memória de preenchimento.':'Resposta desfeita.');}catch(e){status(e.message,true);}}

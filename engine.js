@@ -142,7 +142,7 @@ export function spreadPlanned(data,cat,row,total){
 }
 /* Confirmações: todo ponto em que a leitura não é 100% segura vira uma pergunta que o usuário responde antes de exportar.
  * Entram os avisos da extração (exceto os informativos) e, por rubrica, os valores lidos por OCR. */
-const informative=/^(Início \d|PUR em Word serve só para consulta)/;
+const informative=/^(Início \d|PUR em Word serve só para consulta)|^\S+ OCR: soma mensal ([\d.,]+); total impresso \2;|^OCR: Sub-Total do quadro confere em (\d+) de \3 meses\.$/;
 export function buildChecks(data){
  const checks=data.notices.filter(n=>!informative.test(n)).map((text,i)=>({id:`aviso-${i+1}`,kind:'aviso',text,answer:null}));
  for(const cat of categories){
@@ -151,6 +151,29 @@ export function buildChecks(data){
   if(cells.length)checks.push({id:`ocr-${cat}`,kind:'ocr',cat,text:`${cat}: ${cells.length} ${cells.length===1?'valor lido':'valores lidos'} por OCR (${cells.slice(0,6).join(', ')}${cells.length>6?'…':''}). Confira com o PDF.`,answer:null});
  }
  return checks;
+}
+/* Células que uma confirmação afeta, para a tela de resolução. OCR: as células lidas por OCR da rubrica.
+ * Aviso: rubrica e meses citados no texto ("RHD, mês 3", "meses 2, 5"); só a rubrica, todos os meses de R$ PUR;
+ * só meses, R$ PUR de todas as rubricas nesses meses. Sem rubrica nem mês, nenhuma célula. */
+export function cellsForCheck(check,data){
+ const editable=(cat,row,m)=>data.values[cat]?.[row]&&m<data.duration&&!([3,11,16].includes(row)&&m>=data.closed);
+ if(check.kind==='ocr'){const out=[];for(const [row,src] of Object.entries(data.sources[check.cat]))src.forEach((s,m)=>{if(typeof s==='string'&&s.endsWith('(OCR)')&&editable(check.cat,+row,m))out.push({cat:check.cat,row:+row,m});});return out;}
+ const t=check.text,cats=categories.filter(c=>new RegExp(`(^|[^A-Za-zÀ-ú])${c}([^A-Za-zÀ-ú]|$)`).test(t));
+ const span=g=>g.replace(/(\d+)\s*a\s*(\d+)/g,(_,a,b)=>Array.from({length:Math.max(0,b-a)+1},(_,i)=>+a+i).join(',')).match(/\d+/g).map(n=>+n-1);
+ const months=[...new Set([...t.matchAll(/\bm[eê]s(?:es)?\s+((?:\d+(?:\s*(?:,|e|a)\s*)?)+)/gi)].flatMap(x=>span(x[1])))].filter(m=>m>=0&&m<data.duration);
+ const rows=t.match(/horas/i)?[15,16]:t.match(/profissionais|pessoas/i)?[10,11]:t.match(/realizad/i)?[3]:[2];
+ const out=[];
+ const rowsFor=cat=>['RHD','RHI'].includes(cat)?rows:[...new Set(rows.map(r=>[2,10,15].includes(r)?2:3))];
+ for(const cat of cats.length?cats:months.length?categories:[])for(const row of rowsFor(cat))for(const m of months.length?months:[...Array(data.duration).keys()])if(editable(cat,row,m))out.push({cat,row,m});
+ return [...new Map(out.map(c=>[`${c.cat}|${c.row}|${c.m}`,c])).values()];
+}
+/* Onde está a fonte de uma célula: página do PDF ("p. 3") ou célula da planilha ("Aba!B12"). */
+export function sourceRef(src){
+ if(typeof src!=='string')return null;
+ const s=src.replace(/^Ajuste manual na conferência \(fonte anterior: (.*)\)$/,'$1');
+ let m=s.match(/^(.+?)!\$?([A-Z]{1,3})\$?(\d+)/);if(m)return {kind:'sheet',sheet:m[1],col:m[2],row:+m[3],ocr:false};
+ m=s.match(/\bp\.\s*(\d+)/);if(m)return {kind:'pdf',page:+m[1],ocr:s.endsWith('(OCR)')};
+ return null;
 }
 export const openChecks=data=>(data.checks||[]).filter(c=>!c.answer).length;
 /* Resposta a uma confirmação. "corrigido" exige que algum valor tenha sido ajustado na conferência depois da extração. */
