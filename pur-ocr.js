@@ -25,12 +25,16 @@ export function repairNumber(text){
 
 const distance=(a,b)=>{if(a===b)return 0;if(a.length<b.length)[a,b]=[b,a];if(a.length-b.length>1)return 2;let i=0;while(i<b.length&&a[i]===b[i])i++;return a.length===b.length?(a.slice(i+1)===b.slice(i+1)?1:2):(a.slice(i+1)===b.slice(i)?1:2);};
 const cents=v=>v.toFixed(2).replace('.','');
-/* Compara a soma de uma rubrica com o total do quadro. Se um único valor, trocando um dígito, fecha a soma, ele é corrigido. */
+/* Compara a soma de uma rubrica com o total do quadro. Cada célula pode diferir meio centavo do valor real, por arredondamento na origem.
+ * Se trocar ou remover um dígito de um único valor fecha a soma, ele é corrigido. */
 export function reconcile(values,total){
- const sum=values.reduce((s,v)=>s+(v||0),0),diff=sum-total;
- if(Math.abs(diff)<.015)return {ok:true,sum};
- const hits=[];values.forEach((v,m)=>{if(v===null)return;const want=Math.round((v-diff)*100)/100;if(want>=0&&distance(cents(v),cents(want))<=1)hits.push({m,want});});
- if(hits.length===1)return {ok:true,sum,fixed:hits[0]};
+ const tol=.005*values.filter(Boolean).length+.005,sum=values.reduce((s,v)=>s+(v||0),0),diff=sum-total;
+ if(Math.abs(diff)<=tol)return {ok:true,sum};
+ const hits=[];
+ values.forEach((v,m)=>{if(!v)return;const s=cents(v),tried=new Set([s]);
+  for(let i=0;i<s.length;i++)for(const t of [s.slice(0,i)+s.slice(i+1),...[...'0123456789'].map(d=>s.slice(0,i)+d+s.slice(i+1))]){
+   if(tried.has(t))continue;tried.add(t);const want=+t/100,left=Math.abs(diff-v+want);if(left<=tol)hits.push({m,want,left});}});
+ if(new Set(hits.map(h=>h.m)).size===1)return {ok:true,sum,fixed:hits.sort((a,b)=>a.left-b.left)[0]};
  if(!hits.length&&distance(cents(sum),cents(total))<=1)return {ok:true,sum,totalMisread:true};
  return {ok:false,sum};
 }
