@@ -1,6 +1,6 @@
 import {categories,NS,openWorkbook,extract,exportWorkbook,missing,calculated,number,month,financialInfo,durationFromText} from './engine.js';
 import {pdfPages,parsePur,pdfNumber} from './pur-pdf.js';
-import {readPurPdf} from './pur-v2.js';
+import {readPurPdf,reviewOcr} from './pur-v2.js';
 import {textlessPages,repairNumber,repairHeader,wordsToLines,reconcile,valueColumns,addTitles} from './pur-ocr.js';
 /* PDF mínimo com texto posicionado (Helvetica), para testar a leitura real pelo pdf.js sem documentos privados. */
 function makePdf(pages){
@@ -84,6 +84,9 @@ try{
  const titulos=addTitles(tabela,esparsa).map(l=>l.text);assert(titulos.join('|')==='Para:|Rubricas 1000,00','OCR: título solto recuperado da leitura esparsa, sem duplicar linhas nem trazer números');
  const stamp=Array.from({length:6},()=>[{text:'Assinado digitalmente por Fulano'}]);stamp[4]=[...stamp[4],{text:'x'.repeat(200)}];assert(textlessPages(stamp).join()==='0,1,2,3,5','OCR: carimbo repetido não conta como texto');
  assert(wordsToLines([{text:'Para:',x0:100,y0:100,x1:150,y1:120}],1,800)[0].text==='Para:','OCR: palavras viram linhas');
+ const lido=(linhas,totais)=>({values:Object.fromEntries(categories.map(c=>[c,{2:[...(linhas[c]||[0,0])]}])),sources:Object.fromEntries(categories.map(c=>[c,{2:(linhas[c]||[0,0]).map(()=>'scan.pdf, p. 1')}])),totals:totais,notices:[],duration:(linhas.RHD||[0,0]).length});
+ const totalErrado=lido({RHD:[100,200]},{RHD:3000});reviewOcr(totalErrado,'scan.pdf',1);
+ assert(totalErrado.values.RHD[2].join()==='100,200'&&totalErrado.notices.some(n=>n.includes('RHD')&&n.includes('dígito do total')),'OCR: total lido com dígito errado gera aviso e mantém os meses');
  const info=financialInfo(fin);assert(info.project==='Projeto sintético'&&info.start===month(46266)&&info.lastClosed===month(46266),'financeiro: projeto, início e última competência realizada');
  assert(durationFromText('Prazo de execução: 15 (quinze) meses')===15&&durationFromText('A duração do projeto é de 12 meses')===12&&durationFromText('Mês 1 Mês 2')===null&&durationFromText('prazo de 30 dias')===null,'duração lida do texto do PUR');
  const auto=parsePur(pages,{start,file:'PUR_sintetico.pdf'});assert(auto.duration===12&&auto.values.Equipamentos[2].length===12,'duração deduzida do cronograma quando o texto não informa');

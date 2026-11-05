@@ -4,6 +4,7 @@ import {pdfPages,parsePur,linesFromItems} from './pur-pdf.js';
 import {durationFromText} from './engine.js';
 import {textlessPages,ocrPages,reconcile} from './pur-ocr.js';
 
+const brl=n=>n.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
 const normalize=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\s+/g,' ').trim();
 const marker=s=>{
  const t=normalize(s).replace(/[\s:;.,\-–—]+$/,'');
@@ -57,6 +58,19 @@ function filterCurrent(pages,adendo){
  }));
  return {pages:filtered,hasPara,hasDe,filtered:seenPara};
 }
+/* Confere os valores lidos por OCR com os totais do próprio quadro. Função pura, testável sem PDF. */
+export function reviewOcr(result,name,pages){
+ const rows=Object.entries(result.totals).map(([cat,total])=>({cat,total,...reconcile(result.values[cat][2],total)}));
+ for(const r of rows.filter(r=>r.fixed)){const {m,want}=r.fixed,old=result.values[r.cat][2][m];result.values[r.cat][2][m]=want;result.sources[r.cat][2][m]+=`, valor lido ${old} corrigido pela soma da linha`;result.notices.unshift(`OCR: ${r.cat}, mês ${m+1}: valor lido ${old} corrigido para ${want} para fechar com o total do quadro. Confira.`);}
+ // Traço de célula vazia pode sumir no OCR. Se a soma dos valores lidos já bate com o total, as células sem leitura valem zero.
+ for(const r of rows.filter(r=>r.ok))result.values[r.cat][2].forEach((v,m,a)=>{if(v===null){a[m]=0;result.sources[r.cat][2][m]=`${name}: célula sem valor, soma da linha confere com o total`;}});
+ // A soma só fecha com o total trocando um dígito do próprio total: os meses ficam como lidos, mas o total do PDF precisa ser conferido.
+ for(const r of rows.filter(r=>r.totalMisread))result.notices.unshift(`OCR: em ${r.cat} a soma dos meses (${brl(r.sum)}) só fecha com o total do quadro (${brl(r.total)}) se um dígito do total tiver sido lido errado. Os valores mensais foram mantidos; confira o total dessa rubrica no PDF.`);
+ for(const r of rows.filter(r=>!r.ok))result.notices.unshift(`OCR: em ${r.cat} a soma dos meses (${r.sum.toFixed(2)}) difere do total do quadro (${r.total.toFixed(2)}). Confira essa rubrica no PDF.`);
+ const ok=rows.filter(r=>r.ok).length;
+ result.notices.unshift(`PDF digitalizado: valores lidos por OCR em ${pages} páginas. ${rows.length?`${ok} de ${rows.length} rubricas conferem com o total do quadro. `:''}Confira cada valor com o PDF antes de gerar o relatório.`);
+ for(const cat of Object.keys(result.sources))for(const row of Object.keys(result.sources[cat]))result.sources[cat][row]=result.sources[cat][row].map(s=>s&&`${s} (OCR)`);
+}
 export async function readPurPdf(file,options={}){
  const buffer=await file.arrayBuffer();
  let pages=await pdfPages(buffer);
@@ -94,16 +108,7 @@ export async function readPurPdf(file,options={}){
    if(a.length<chosen){while(a.length<chosen){a.push(null);s.push(null);}}else{a.length=chosen;s.length=chosen;}
   }
  }
- if(ocr){
-  const rows=Object.entries(result.totals).map(([cat,total])=>({cat,total,...reconcile(result.values[cat][2],total)}));
-  for(const r of rows.filter(r=>r.fixed)){const {m,want}=r.fixed,old=result.values[r.cat][2][m];result.values[r.cat][2][m]=want;result.sources[r.cat][2][m]+=`, valor lido ${old} corrigido pela soma da linha`;result.notices.unshift(`OCR: ${r.cat}, mês ${m+1}: valor lido ${old} corrigido para ${want} para fechar com o total do quadro. Confira.`);}
-  // Traço de célula vazia pode sumir no OCR. Se a soma dos valores lidos já bate com o total, as células sem leitura valem zero.
-  for(const r of rows.filter(r=>r.ok))result.values[r.cat][2].forEach((v,m,a)=>{if(v===null){a[m]=0;result.sources[r.cat][2][m]=`${file.name}: célula sem valor, soma da linha confere com o total`;}});
-  for(const r of rows.filter(r=>!r.ok))result.notices.unshift(`OCR: em ${r.cat} a soma dos meses (${r.sum.toFixed(2)}) difere do total do quadro (${r.total.toFixed(2)}). Confira essa rubrica no PDF.`);
-  const ok=rows.filter(r=>r.ok).length;
-  result.notices.unshift(`PDF digitalizado: valores lidos por OCR em ${ocr.pages} páginas. ${rows.length?`${ok} de ${rows.length} rubricas conferem com o total do quadro. `:''}Confira cada valor com o PDF antes de gerar o relatório.`);
-  for(const cat of Object.keys(result.sources))for(const row of Object.keys(result.sources[cat]))result.sources[cat][row]=result.sources[cat][row].map(s=>s&&`${s} (OCR)`);
- }
+ if(ocr)reviewOcr(result,file.name,ocr.pages);
  if(selected.filtered)result.notices.unshift('Adendo: leitura limitada aos trechos identificados como PARA. Confira se as demais rubricas não alteradas estão completas; um adendo parcial pode exigir o PUR consolidado.');
  if(adendo&&!selected.hasDe)result.notices.unshift('Adendo: foi encontrado PARA sem DE. Verifique a integridade do documento.');
  result.text=full;
