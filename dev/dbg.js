@@ -1,0 +1,5 @@
+const {chromium}=require('playwright'),path=require('path');
+(async()=>{const [base,file]=process.argv.slice(2);const b=await chromium.launch(),p=await b.newPage();p.on('pageerror',e=>console.log('ERR',e.message));
+ await p.goto(base+'/index.html');await p.setInputFiles('#pur',file);
+ const r=await p.evaluate(async()=>{const o=await import('./pur-ocr.js'),d=await import('./pur-pdf.js');const f=document.getElementById('pur').files[0],buf=await f.arrayBuffer();const pages=await d.pdfPages(buf);const blank=o.textlessPages(pages);const t=performance.now();const x=await o.ocrPages(f,buf,blank);return {rot:x.rotations,blank,tables:x.tables,ms:performance.now()-t,lines:Object.fromEntries(Object.entries(x.lines).map(([k,v])=>[k,v.map(l=>l.cells.map(c=>c.text).join(' | '))]))};});
+ console.log(r.rot,r.blank,r.tables,Math.round(r.ms)+'ms');for(const [k,v] of Object.entries(r.lines)){console.log('--- pagina',+k+1,v.length);console.log(v.slice(0,22).map(s=>s.slice(0,170)).join('\n'));}await b.close();})().catch(e=>{console.error(e);process.exit(1)});
