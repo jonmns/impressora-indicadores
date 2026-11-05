@@ -1,7 +1,7 @@
 /* Leitura conservadora de adendos: prioriza exclusivamente os trechos PARA.
  * Depende do leitor já existente do projeto e não altera o tratamento do financeiro. */
 import {pdfPages,parsePur,linesFromItems} from './pur-pdf.js';
-import {durationFromText} from './engine.js';
+import {durationFromText,categories} from './engine.js';
 import {textlessPages,ocrPages,reconcile} from './pur-ocr.js';
 
 const brl=n=>n.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -58,6 +58,21 @@ function filterCurrent(pages,adendo){
  }));
  return {pages:filtered,hasPara,hasDe,filtered:seenPara};
 }
+/* Confere cada mês contra a linha Sub-Total do quadro: soma das sete rubricas do relatório mais as demais (livros, viagens, treinamento).
+ * Divergência vira aviso; nenhum valor é alterado. Devolve {checked, ok, bad}. Função pura, testável sem PDF. */
+export function checkSubtotals(result,ocr=false){
+ const subs=result.subtotals||[],bad=[],open=[];let checked=0;
+ for(let m=0;m<Math.min(subs.length,result.duration||subs.length);m++){const want=subs[m];if(want===null||want===undefined)continue;
+  const parts=[...categories.map(c=>result.values[c]?.[2]?.[m]??null),...Object.values(result.others||{}).map(a=>a[m]??null)];
+  if(categories.some(c=>(result.values[c]?.[2]?.[m]??null)===null)){open.push(m+1);continue;}
+  checked++;const sum=parts.reduce((s,v)=>s+(v||0),0),tol=.005*parts.filter(Boolean).length+.005;
+  if(Math.abs(sum-want)>tol)bad.push({m,sum,want,missing:parts.some(v=>v===null)});}
+ const tag=ocr?'OCR: ':'';
+ if(bad.length)result.notices.unshift(`${tag}a soma das rubricas difere da linha Sub-Total do quadro em ${bad.length===1?'1 mês':bad.length+' meses'}: ${bad.map(b=>`mês ${b.m+1} (soma ${brl(b.sum)}, Sub-Total ${brl(b.want)}${b.missing?', há rubrica fora do relatório sem leitura':''})`).join('; ')}. Nenhum valor foi alterado; confira esses meses no PDF.`);
+ if(open.length&&checked)result.notices.push(`Sub-Total do quadro não conferido ${open.length===1?'no mês':'nos meses'} ${open.join(', ')}, porque há rubrica pendente.`);
+ return {checked,ok:checked-bad.length,bad:bad.length};
+}
+
 /* Confere os valores lidos por OCR com os totais do próprio quadro. Função pura, testável sem PDF. */
 export function reviewOcr(result,name,pages){
  const rows=Object.entries(result.totals).map(([cat,total])=>({cat,total,...reconcile(result.values[cat][2],total)}));
@@ -69,6 +84,11 @@ export function reviewOcr(result,name,pages){
  // A soma só fecha com o total trocando um dígito do próprio total: os meses ficam como lidos, mas o total do PDF precisa ser conferido.
  for(const r of rows.filter(r=>r.totalMisread))result.notices.unshift(`OCR: em ${r.cat} a soma dos meses (${brl(r.sum)}) só fecha com o total do quadro (${brl(r.total)}) se um dígito do total tiver sido lido errado. Os valores mensais foram mantidos; confira o total dessa rubrica no PDF.`);
  for(const r of rows.filter(r=>!r.ok))result.notices.unshift(`OCR: em ${r.cat} a soma dos meses (${r.sum.toFixed(2)}) difere do total do quadro (${r.total.toFixed(2)}). Confira essa rubrica no PDF.`);
+ // Rubricas fora do relatório (livros, viagens, treinamento) só servem para conferir o Sub-Total do mês.
+ for(const [o,total] of Object.entries(result.otherTotals||{})){const a=result.others?.[o];if(!a)continue;const r=reconcile(a,total);
+  if(r.fixed){const old=a[r.fixed.m];a[r.fixed.m]=r.fixed.want;result.notices.unshift(`OCR: ${o} (rubrica fora do relatório), mês ${r.fixed.m+1}: valor lido ${old} tratado como ${r.fixed.want} para fechar com o total do quadro, só na conferência do Sub-Total.`);}
+  if(r.ok)a.forEach((v,m)=>{if(v===null)a[m]=0;});
+  else result.notices.unshift(`OCR: em ${o} (rubrica fora do relatório) a soma dos meses (${brl(r.sum)}) difere do total do quadro (${brl(total)}). A conferência dos meses pelo Sub-Total pode acusar diferença por isso.`);}
  const ok=rows.filter(r=>r.ok).length;
  result.notices.unshift(`PDF digitalizado: valores lidos por OCR em ${pages} páginas. ${rows.length?`${ok} de ${rows.length} rubricas conferem com o total do quadro. `:''}Confira cada valor com o PDF antes de gerar o relatório.`);
  for(const cat of Object.keys(result.sources))for(const row of Object.keys(result.sources[cat]))result.sources[cat][row]=result.sources[cat][row].map(s=>s&&`${s} (OCR)`);
@@ -109,8 +129,11 @@ export async function readPurPdf(file,options={}){
    const a=result.values[cat][row],s=result.sources[cat][row];
    if(a.length<chosen){while(a.length<chosen){a.push(null);s.push(null);}}else{a.length=chosen;s.length=chosen;}
   }
+  for(const a of [result.subtotals,...Object.values(result.others)]){while(a.length<chosen)a.push(null);a.length=chosen;}
  }
  if(ocr)reviewOcr(result,file.name,ocr.pages);
+ const subs=checkSubtotals(result,!!ocr);
+ if(ocr&&subs.checked)result.notices.unshift(`OCR: Sub-Total do quadro confere em ${subs.ok} de ${subs.checked} meses.`);
  if(selected.filtered)result.notices.unshift('Adendo: leitura limitada aos trechos identificados como PARA. Confira se as demais rubricas não alteradas estão completas; um adendo parcial pode exigir o PUR consolidado.');
  if(adendo&&!selected.hasDe)result.notices.unshift('Adendo: foi encontrado PARA sem DE. Verifique a integridade do documento.');
  result.text=full;

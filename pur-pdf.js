@@ -85,13 +85,16 @@ function columnOf(header,cell){
  return null;
 }
 
-const isTotal=s=>/^(sub\s*)?total/.test(norm(s));
+const isTotal=s=>/^(sub\s*-?\s*)?total/.test(norm(s));
+/* Rubricas do PUR que não vão para o relatório, mas entram no Sub-Total do quadro. */
+const OTHERS=[['Livros',/livro|periodico/],['Viagens',/viage/],['Treinamento',/treinamento/]];
+const otherOf=s=>{const t=norm(s);return OTHERS.find(([,r])=>r.test(t))?.[0]||null;};
 
 /* Interpreta as linhas do PDF e devolve valores planejados por rubrica e mês. Função pura, testável sem PDF. */
 export function parsePur(pages,{duration:given,start,file='PUR.pdf'}){
  const duration=given||24,values={},sources={},notices=[];
  for(const cat of categories){values[cat]={2:Array(duration).fill(null)};sources[cat]={2:Array(duration).fill(null)};if(cat==='RHD'||cat==='RHI')for(const r of [10,15]){values[cat][r]=Array(duration).fill(null);sources[cat][r]=Array(duration).fill(null);}}
- const totals={},functions={RHD:new Map(),RHI:new Map()},seen=new Set();let moneyMonths=0;let headers=0,hoursTables=0;
+ const subtotals=Array(duration).fill(null),others={},otherTotals={},totals={},functions={RHD:new Map(),RHI:new Map()},seen=new Set();let moneyMonths=0;let headers=0,hoursTables=0;
  pages.forEach((lines,p)=>{
   let header=null,kind='money',group=null,pending='',history=[];
   lines.forEach((line,i)=>{
@@ -114,9 +117,16 @@ export function parsePur(pages,{duration:given,start,file='PUR.pdf'}){
    // Número sem rótulo na própria linha: o rótulo pode ter várias linhas acima dele.
    const candidates=[own,`${pending} ${own}`,`${own} ${nextLabel}`,`${pending} ${own} ${nextLabel}`,own?'':history.join(' ')].map(s=>s.trim()).filter(Boolean);history=[];
    const where=`${file}, p. ${p+1}`;
-   if(isTotal(own)){pending='';if(kind==='hours')group=null;return;}
+   if(isTotal(own)){pending='';if(kind==='hours')group=null;
+    // Primeira linha de total de cada quadro financeiro: soma de todas as rubricas no mês.
+    else for(const {m,n} of nums)if(m<duration&&subtotals[m]===null)subtotals[m]=n;
+    return;}
    if(kind==='money'){
-    const cat=candidates.map(rubrica).find(Boolean);pending='';if(!cat)return;
+    const cat=candidates.map(rubrica).find(Boolean);pending='';
+    if(!cat){const o=candidates.map(otherOf).find(Boolean);if(!o)return;
+     others[o]??=Array(duration).fill(null);for(const {m,n} of nums)if(m<duration&&others[o][m]===null)others[o][m]=n;
+     const end=line.cells.filter(c=>c.x1>header.lastX&&pdfNumber(c.text)!==null).pop();if(end&&!(o in otherTotals))otherTotals[o]=pdfNumber(end.text);
+     return;}
     moneyMonths=Math.max(moneyMonths,header.cols[header.cols.length-1].m+1);
     const beyond=line.cells.filter(c=>c.x1>header.lastX&&pdfNumber(c.text)!==null).pop();if(beyond&&!(cat in totals))totals[cat]=pdfNumber(beyond.text);
     for(const {m,n} of nums){if(m>=duration)continue;const key=`${cat}|${m}`;
@@ -152,9 +162,9 @@ export function parsePur(pages,{duration:given,start,file='PUR.pdf'}){
   const fromText=durationFromText(text);
   if(fromText){detected=fromText;if(last+1>fromText)notices.push(`O PUR informa ${fromText} meses, mas há valores planejados até o mês ${last+1}. Confira a duração.`);}
   else if(last>=0){detected=last+1;notices.push(`Duração deduzida do cronograma do PUR: ${detected} meses (o texto não informa o prazo). Confira.`);}
-  if(detected){for(const cat of categories)for(const row of Object.keys(values[cat])){values[cat][row].length=detected;sources[cat][row].length=detected;}}
+  if(detected){for(const cat of categories)for(const row of Object.keys(values[cat])){values[cat][row].length=detected;sources[cat][row].length=detected;}for(const a of [subtotals,...Object.values(others)])a.length=detected;}
  }
- return {values,sources,totals,moneyMonths,notices:[...new Set(notices)],text,duration:detected};
+ return {values,sources,totals,subtotals,others,otherTotals,moneyMonths,notices:[...new Set(notices)],text,duration:detected};
 }
 
 export async function readPurPdf(file,options){return parsePur(await pdfPages(await file.arrayBuffer()),{...options,file:file.name});}
