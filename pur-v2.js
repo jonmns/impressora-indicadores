@@ -83,7 +83,9 @@ export async function readPurPdf(file,options={}){
  const byHeader=durationFromHeaders(relevant);
  const byText=durationFromText(relevant.flatMap(p=>p.map(l=>l.text)).join('\n'));
  const found=[result.duration,byHeader,byText].filter(Number.isInteger);
- const chosen=byHeader||byText||result.duration;
+ // O quadro financeiro define a duração. Cronograma físico e vigência podem ir além da execução.
+ const chosen=result.moneyMonths||byHeader||byText||result.duration;
+ if(result.moneyMonths&&byHeader>result.moneyMonths)result.notices.push(`O documento tem cronograma até o mês ${byHeader}, mas o quadro financeiro vai até o mês ${result.moneyMonths}. Foi usada a duração do quadro financeiro.`);
  if(chosen&&chosen>=1&&chosen<=24){
   if(result.duration&&result.duration!==chosen)result.notices.push(`O cronograma indica ${chosen} meses; a leitura anterior indicou ${result.duration}. Verifique a duração.`);
   result.duration=chosen;
