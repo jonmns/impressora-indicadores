@@ -112,7 +112,7 @@ async function render(page,scale,rotation){
  canvas.width=Math.ceil(viewport.width);canvas.height=Math.ceil(viewport.height);
  const ctx=canvas.getContext('2d',{willReadFrequently:true});ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);
  ctx.fillText=()=>{}; // O único texto real destas páginas é o carimbo de assinatura, que costuma passar por cima dos quadros.
- await page.render({canvasContext:ctx,viewport}).promise;
+ await page.render({canvasContext:ctx,viewport,intent:'print'}).promise; // 'print' não depende de animação: a leitura segue com a janela em segundo plano.
  return canvas;
 }
 
@@ -177,7 +177,7 @@ export async function ocrPages(file,buffer,indices,onProgress=()=>{}){
  const [{default:Tesseract},lib]=await Promise.all([import('./vendor/tesseract.esm.min.js'),import('./vendor/pdf.min.mjs')]);
  lib.GlobalWorkerOptions.workerSrc=new URL('./vendor/pdf.worker.min.mjs',import.meta.url).href;
  const doc=await lib.getDocument({data:new Uint8Array(buffer).slice(),isEvalSupported:false,enableXfa:false,verbosity:0}).promise;
- const size=Math.min(4,Math.max(1,(navigator.hardwareConcurrency||2)-1)),workers=[];
+ const size=Math.min(6,Math.max(1,(navigator.hardwareConcurrency||2)-1)),workers=[];
  try{
   onProgress('Preparando o OCR local…');
   for(let i=0;i<size;i++)workers.push(await Tesseract.createWorker('por',1,{workerPath:BASE+'worker.min.js',corePath:BASE+'tesseract-core-simd-lstm.wasm.js',langPath:BASE.replace(/\/$/,''),gzip:true,cacheMethod:'none',workerBlobURL:false}));
