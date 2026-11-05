@@ -18,7 +18,7 @@ Repositório: https://github.com/jonmns/impressora-indicadores
 
 Sirva a pasta com `python -m http.server 8931`. Não abra `index.html` por `file://`.
 
-- `tests.html`: testes no navegador (87 verificações). Inclui OCR real com o Tesseract de `vendor/`: um quadro desenhado em canvas, com células apagadas da leitura para exercitar `fillGaps`.
+- `tests.html`: testes no navegador (88 verificações). Inclui OCR real com o Tesseract de `vendor/`: um quadro desenhado em canvas, com células apagadas da leitura para exercitar `fillGaps`.
 - `dev/run-tests.js` ou `dev/run_tests.py`: rodam `tests.html` no Chromium via Playwright. Uso: `python dev/run_tests.py http://127.0.0.1:8931`.
 - `dev/make_fixtures.py` e `dev/make_scan.py`: geram PDFs e planilha sintéticos. Dependências: pillow, playwright, reportlab, openpyxl.
 - `dev/run.js` ou `dev/run.py`: fluxo completo com PDFs de texto.
