@@ -3,6 +3,7 @@
 import {pdfPages,parsePur,linesFromItems} from './pur-pdf.js';
 import {durationFromText} from './engine.js';
 import {textlessPages,ocrPages,reconcile} from './pur-ocr.js';
+import {rhTotals} from './pur-rh.js';
 
 const normalize=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\s+/g,' ').trim();
 const marker=s=>{
@@ -106,6 +107,7 @@ export async function readPurPdf(file,options={}){
  }
  if(selected.filtered)result.notices.unshift('Adendo: leitura limitada aos trechos identificados como PARA. Confira se as demais rubricas não alteradas estão completas; um adendo parcial pode exigir o PUR consolidado.');
  if(adendo&&!selected.hasDe)result.notices.unshift('Adendo: foi encontrado PARA sem DE. Verifique a integridade do documento.');
+ const rh=rhTotals(pages,file.name);result.rhTotals=rh.totals;result.notices.push(...rh.notices);
  result.text=full;
  result.adendo={detected:adendo,usedPara:selected.filtered,hasDe:selected.hasDe,hasPara:selected.hasPara,headerMonths:byHeader};
  return result;

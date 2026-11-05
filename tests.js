@@ -1,6 +1,7 @@
 import {categories,NS,openWorkbook,extract,exportWorkbook,missing,calculated,number,month,financialInfo,durationFromText,spreadPlanned} from './engine.js';
 import {pdfPages,parsePur,pdfNumber} from './pur-pdf.js';
 import {readPurPdf} from './pur-v2.js';
+import {rhTotals} from './pur-rh.js';
 import {textlessPages,repairNumber,repairHeader,wordsToLines,reconcile,valueColumns} from './pur-ocr.js';
 /* PDF mínimo com texto posicionado (Helvetica), para testar a leitura real pelo pdf.js sem documentos privados. */
 function makePdf(pages){
@@ -88,6 +89,13 @@ try{
  const stamp=Array.from({length:6},()=>[{text:'Assinado digitalmente por Fulano'}]);stamp[4]=[...stamp[4],{text:'x'.repeat(200)}];assert(textlessPages(stamp).join()==='0,1,2,3,5','OCR: carimbo repetido não conta como texto');
  assert(wordsToLines([{text:'Para:',x0:100,y0:100,x1:150,y1:120}],1,800)[0].text==='Para:','OCR: palavras viram linhas');
  const info=financialInfo(fin);assert(info.project==='Projeto sintético'&&info.start===month(46266)&&info.lastClosed===month(46266),'financeiro: projeto, início e última competência realizada');
+ const L=t=>({text:t,cells:[]}),detail=[['DETALHAMENTO DOS RECURSOS FINANCEIROS:','c) Recursos Humanos Diretos:','DE:','# Descrição Horas Totais Custo/Hora Valor (R$)','1 Gerente antigo 1.430 R$ 10,00 R$ 14.300,00','TOTAL R$ 14.300,00','PARA:','1 Desenvolvedor Frontend 1760 62,55 110.089,93','2 Desenvolvedor IA / Cientista','de dados 528 102,27 54.558,80','TOTAL R$ 164.648,73','DE:','d) Recursos Humanos Indiretos:','1 Gerente administrativo 170 R$ 121,78 R$ 20.704,10','TOTAL R$ 20.704,10','PARA:','1 Analista Financeiro 761 74,47 56.672,70','2 Auxiliar Administrativo 352 28,80 10.136,85','TOTAL 66.809,55','e) Aquisição de Livros e Periódicos:','1 Livro 3 10,00 30,00'].map(L)];
+ const rh=rhTotals(detail,'PUR.pdf');
+ assert(rh.totals.RHD?.hours===2288&&rh.totals.RHD.people===2&&rh.totals.RHI?.hours===1113&&rh.totals.RHI.people===2&&!rh.notices.length,'detalhamento: horas PARA de RHD e RHI, com DE antes do título');
+ const broken=rhTotals([detail[0].map(l=>l.text==='TOTAL 66.809,55'?L('TOTAL 99.999,99'):l)],'PUR.pdf');
+ assert(broken.totals.RHD&&!broken.totals.RHI&&/RHI/.test(broken.notices[0]),'detalhamento que não fecha com o total fica pendente');
+ const viaPdf=extract(fin,plan,{project:'x',start,duration:12,closed:1,pdf:{values:{},sources:{},notices:[],rhTotals:rh.totals}});
+ assert(viaPdf.values.RHD[15][0]===190.66&&viaPdf.values.RHD[10].every(v=>v===2)&&viaPdf.values.RHI[15][11]===92.75&&/detalhamento/.test(viaPdf.sources.RHD[15][0]),'média do detalhamento preenche horas e profissionais previstos');
  assert(durationFromText('Prazo de execução: 15 (quinze) meses')===15&&durationFromText('A duração do projeto é de 12 meses')===12&&durationFromText('Mês 1 Mês 2')===null&&durationFromText('prazo de 30 dias')===null,'duração lida do texto do PUR');
  const auto=parsePur(pages,{start,file:'PUR_sintetico.pdf'});assert(auto.duration===12&&auto.values.Equipamentos[2].length===12,'duração deduzida do cronograma quando o texto não informa');
  const withText=parsePur([[...pages[0],{y:0,cells:[{x0:0,x1:10,xc:5,text:'Prazo de execução: 9 meses'}],text:'Prazo de execução: 9 meses'}],pages[1]],{start,file:'x.pdf'});assert(withText.duration===9&&withText.values.RHD[15].length===9,'duração do texto prevalece e corta os meses excedentes');

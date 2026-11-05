@@ -79,6 +79,14 @@ export function extract(fin,plan,options){
   set(data,cat,15,m,missing?null:sum,`${rh.name}!${refs.join(',')}`);set(data,cat,10,m,missing?null:people.size,`${rh.name}: funções distintas com horas > 0; conferir vagas com mesma função`);
  }data.notices.push(`${cat}: profissionais previstos foram contados por função distinta. Confira se existem duas ou mais vagas com o mesmo nome de função.`);}
  if(pdf)applyPdf(data,pdf);
+ // PUR sem quadro mensal de horas: média das horas totais do detalhamento financeiro pelos meses do projeto.
+ for(const [cat,t] of Object.entries(pdf?.rhTotals||{})){
+  if(data.values[cat][15].some(v=>v!==null))continue;
+  spreadPlanned(data,cat,15,t.hours);spreadPlanned(data,cat,10,t.people);
+  data.sources[cat][15]=data.sources[cat][15].map(s=>s.replace('Média informada na conferência:','Média do PUR:')+` — ${t.where}`);
+  data.sources[cat][10]=data.sources[cat][10].map(()=>`${t.where}: ${t.people} cargos com horas, repetidos em todos os meses`);
+  data.notices.push(`${cat}: horas previstas = ${t.hours} horas totais de ${t.people} cargos do detalhamento financeiro do PUR ÷ ${data.duration} meses. Profissionais previstos = ${t.people} em todos os meses. Confira com o PDF.`);
+ }
  if(categories.every(cat=>data.values[cat][2].every(v=>v===null)))data.notices.push('Cronograma mensal de dispêndios não reconhecido no PUR nem na planilha de apoio. Complete o planejado na conferência.');
  const pos=findSheet(fin,'posicao financeira');if(!pos)throw Error('Não encontrei a aba Posição Financeira no relatório financeiro.');
  const project=pos.get('C6');data.detectedProject=typeof project==='string'?project:'';
