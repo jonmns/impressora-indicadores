@@ -1,4 +1,4 @@
-import {categories,NS,openWorkbook,extract,exportWorkbook,missing,calculated,number,month,financialInfo,durationFromText,spreadPlanned,buildChecks,openChecks,answerCheck} from './engine.js';
+import {categories,NS,openWorkbook,extract,exportWorkbook,missing,calculated,number,month,financialInfo,durationFromText,spreadPlanned,buildChecks,openChecks,answerCheck,cellsForCheck,sourceRef} from './engine.js';
 import {pdfPages,parsePur,pdfNumber} from './pur-pdf.js';
 import {readPurPdf,reviewOcr,checkSubtotals,marker,consolidatedReview} from './pur-v2.js';
 import {rhTotals} from './pur-rh.js';
@@ -78,7 +78,14 @@ try{
   let erro='';try{answerCheck(c,c.checks[0].id,'corrigido');}catch(e){erro=e.message;}assert(erro.includes('Nenhum valor'),'confirmação: "corrigido" exige ajuste na tabela');
   answerCheck(c,c.checks[0].id,'confirmado');assert(openChecks(c)===open-1&&!!c.checks[0].answeredAt,'confirmação: resposta registrada com data');
   answerCheck(c,c.checks[0].id,null);assert(openChecks(c)===open,'confirmação: resposta pode ser desfeita');
-  spreadPlanned(c,'RHD',15,100);answerCheck(c,c.checks[0].id,'corrigido');assert(c.checks[0].answer==='corrigido','confirmação: "corrigido" aceito depois de ajuste');}
+  spreadPlanned(c,'RHD',15,100);answerCheck(c,c.checks[0].id,'corrigido');assert(c.checks[0].answer==='corrigido','confirmação: "corrigido" aceito depois de ajuste');
+  assert(cellsForCheck({kind:'ocr',cat:'RHD'},c).some(x=>x.cat==='RHD'&&x.row===2&&x.m===0),'resolver: célula de OCR ligada à confirmação');
+  const um=cellsForCheck({kind:'aviso',text:'RHD, mês 1: competência não marcada como Realizado na Posição Financeira.'},c);assert(um.length===1&&um[0].cat==='RHD'&&um[0].row===3&&um[0].m===0,'resolver: rubrica, linha e mês do aviso');
+  const sub=cellsForCheck({kind:'aviso',text:'Sub-Total do quadro não conferido nos meses 2, 5.'},c);assert(sub.length===14&&sub.every(x=>[1,4].includes(x.m)&&x.row===2),'resolver: meses do aviso em todas as rubricas');
+  assert(cellsForCheck({kind:'aviso',text:'Confira o documento.'},c).length===0,'resolver: aviso sem rubrica nem mês não aponta célula');
+  const sr=sourceRef('Posição Financeira!N12');assert(sr.kind==='sheet'&&sr.col==='N'&&sr.row===12,'resolver: fonte na planilha');
+  const pr=sourceRef('PUR.pdf, p. 7, linha 3 (OCR)');assert(pr.kind==='pdf'&&pr.page===7&&pr.ocr,'resolver: fonte no PDF');
+  assert(sourceRef('Ajuste manual na conferência (fonte anterior: Aba!B2)').col==='B','resolver: ajuste manual mantém a fonte original');}
  const rotated=parsePur([[{y:1,cells:[{x0:0,x1:5,xc:2,text:'Rubrica'},...Array.from({length:6},(_,i)=>({x0:100+i*40,x1:120+i*40,xc:110+i*40,text:['set/26','out/26','nov/26','dez/26','jan/27','fev/27'][i]}))],text:''},{y:0,cells:[{x0:0,x1:60,xc:30,text:'Materiais de consumo'},{x0:140,x1:160,xc:150,text:'7,5'}],text:''}]],{duration:12,start:month('2026-09')});
  assert(rotated.values.Materiais[2][1]===7.5,'PDF: cabeçalho jan/26 vira mês do projeto');
  const mesAno=['set/26','out/26','nov/26','dez/26','jan/27','fev/27'],semMes=makePdf([[{x:30,y:540,text:'Rubrica'},...mesAno.map((t,i)=>({x:200+i*50,y:540,text:t})),{x:30,y:525,text:'V - Materiais de consumo'},...mesAno.map((_,i)=>({x:200+i*50,y:525,text:'7,50'}))]]);
