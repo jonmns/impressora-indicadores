@@ -91,6 +91,10 @@ export function extract(fin,plan,options){
  const pos=findSheet(fin,'posicao financeira');if(!pos)throw Error('Não encontrei a aba Posição Financeira no relatório financeiro.');
  const project=pos.get('C6');data.detectedProject=typeof project==='string'?project:'';
  const detectedStart=month(pos.get('L1'));if(detectedStart!==null&&detectedStart!==start)data.notices.push('O início informado difere da célula L1 da Posição Financeira. Confira a competência inicial antes de exportar.');
+ // A duração vem do PUR; a Posição Financeira tem seu próprio período (L1 a L2). Divergência vira aviso, sem alterar nada.
+ const end=month(pos.get('L2'));
+ if(detectedStart!==null&&end!==null&&end>=detectedStart&&end-detectedStart+1!==duration){const mmyy=x=>`${String(x%12+1).padStart(2,'0')}/${Math.floor(x/12)}`,n=end-detectedStart+1;
+  data.notices.push(`A duração do PUR (${duration} meses, ${mmyy(start)} a ${mmyy(start+duration-1)}) difere do período da Posição Financeira (${n} meses, células L1 a L2: ${mmyy(detectedStart)} a ${mmyy(end)}). O relatório segue o PUR; confira qual documento está atualizado.`);}
  // Calendar month matching, never assume the first financial column is project month 1.
  const map={};for(let c=13;c<=80;c++){const mm=month(at(pos,7,c));if(mm!==null&&mm>=start&&mm<start+duration){if(map[mm]){
    // Data errada na planilha depois do último mês do projeto (ex.: 02/05 em vez de 01/06): as competências do projeto já estão todas mapeadas, a coluna é ignorada.
