@@ -1,7 +1,7 @@
 /* Leitura conservadora de adendos: prioriza exclusivamente os trechos PARA.
  * Depende do leitor já existente do projeto e não altera o tratamento do financeiro. */
 import {pdfPages,parsePur,linesFromItems} from './pur-pdf.js';
-import {durationFromText,categories} from './engine.js';
+import {durationFromText,categories,rubrica} from './engine.js';
 import {textlessPages,ocrPages,reconcile} from './pur-ocr.js';
 
 const brl=n=>n.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -51,7 +51,12 @@ async function rotatedPages(buffer){
 }
 function filterCurrent(pages,adendo){
  const all=pages.flatMap(p=>p.map(l=>marker(l.text))).filter(Boolean);
- const hasPara=all.includes('PARA'),hasDe=all.includes('DE');
+ let hasPara=all.includes('PARA'),hasDe=all.includes('DE');
+ // Só DE, sem PARA: se nenhum DE vem antes de um quadro de meses com rubricas, é fragmento de texto (comum no OCR) e não marcador.
+ if(hasDe&&!hasPara){const flat=pages.flat(),months=l=>[l.text,...l.cells.map(c=>c.text)].flatMap(monthTokens).length>=4;
+  const money=j=>months(flat[j])&&flat.slice(j+1,j+40).some(l=>rubrica(l.text));
+  const real=flat.some((l,i)=>marker(l.text)==='DE'&&flat.slice(i+1,i+80).some((_,k)=>money(i+1+k)));
+  if(!real)return {pages,hasPara:false,hasDe:false,filtered:false,ignored:true};}
  if(!adendo||(!hasDe&&!hasPara))return {pages,hasPara,hasDe,filtered:false};
  let current=null,seenPara=false;
  const filtered=pages.map(lines=>lines.map(line=>{
@@ -74,6 +79,22 @@ export function checkSubtotals(result,ocr=false){
  if(bad.length)result.notices.unshift(`${tag}a soma das rubricas difere da linha Sub-Total do quadro em ${bad.length===1?'1 mês':bad.length+' meses'}: ${bad.map(b=>`mês ${b.m+1} (soma ${brl(b.sum)}, Sub-Total ${brl(b.want)}${b.missing?', há rubrica fora do relatório sem leitura':''})`).join('; ')}. Nenhum valor foi alterado; confira esses meses no PDF.`);
  if(open.length)result.notices.push(`Sub-Total do quadro não conferido ${open.length===1?'no mês':'nos meses'} ${open.join(', ')}, porque há rubrica pendente.`);
  return {checked,ok:checked-bad.length,bad:bad.length};
+}
+
+/* Termo Aditivo sem DE/PARA só vale como plano vigente se o quadro fechar: toda rubrica lida tem total e a soma dos meses bate,
+ * e o Sub-Total confere em pelo menos um mês, sem nenhum mês divergente. Tolerância de meio centavo por célula. */
+export function consolidatedOk(result,subs){return !consolidatedProblem(result,subs);}
+/* Motivo para não aceitar o Termo Aditivo como plano, ou '' quando fecha. */
+export function consolidatedProblem(result,subs){
+ const cats=Object.keys(result.values).filter(c=>result.values[c][2].some(v=>v!==null));
+ if(!cats.length)return 'nenhuma rubrica lida no quadro financeiro';
+ for(const c of cats){const a=result.values[c][2],t=result.totals[c];
+  if(t===undefined||t===null)return `sem total lido para ${c}`;
+  if(a.some(v=>v===null))return `${c} com meses sem leitura`;
+  const sum=a.reduce((s,v)=>s+v,0);if(Math.abs(sum-t)>.005*a.filter(Boolean).length+.005)return `${c}: soma dos meses ${brl(sum)} diferente do total ${brl(t)}`;}
+ if(!subs.checked)return 'Sub-Total do quadro não conferido em nenhum mês';
+ if(subs.bad)return `Sub-Total diverge em ${subs.bad} ${subs.bad===1?'mês':'meses'}`;
+ return '';
 }
 
 /* Confere os valores lidos por OCR com os totais do próprio quadro. Função pura, testável sem PDF. */
@@ -117,7 +138,10 @@ export async function readPurPdf(file,options={}){
  const selected=filterCurrent(pages,adendo);
  if(adendo&&selected.hasDe&&!selected.hasPara)throw Error('Adendo com quadro DE, mas sem quadro PARA identificável. Não é seguro extrair valores antigos. Confira o PDF.');
  if(adendo&&!selected.filtered && selected.hasPara)throw Error('Não foi possível isolar com segurança o quadro PARA do adendo. Confira a estrutura do PDF.');
- if(adendo&&!selected.hasPara)throw Error('Este documento parece ser um adendo, mas não identifiquei claramente o quadro PARA. Para evitar valores desatualizados, use um PDF com texto selecionável e estrutura DE/PARA legível.');
+ // Termo Aditivo sem nenhum quadro DE/PARA: pode trazer o plano completo. Só é aceito se o quadro fechar (ver consolidatedOk).
+ const consolidated=adendo&&!selected.hasDe&&!selected.hasPara;
+ const noPara=()=>Error('Este documento parece ser um adendo, mas não identifiquei claramente o quadro PARA. Para evitar valores desatualizados, use um PDF com texto selecionável e estrutura DE/PARA legível.');
+ if(adendo&&!selected.hasPara&&!consolidated)throw noPara();
  const relevant=selected.filtered?selected.pages:pages;
  const result=parsePur(relevant,{start:options.start,duration:options.duration,file:file.name});
  const byHeader=durationFromHeaders(relevant);
@@ -138,6 +162,7 @@ export async function readPurPdf(file,options={}){
  if(ocr)reviewOcr(result,file.name,ocr.pages);
  const subs=checkSubtotals(result,!!ocr);
  if(ocr&&subs.checked)result.notices.unshift(`OCR: Sub-Total do quadro confere em ${subs.ok} de ${subs.checked} meses.`);
+ if(consolidated){const why=consolidatedProblem(result,subs);if(why)throw Error(`Termo Aditivo sem quadros DE/PARA: o quadro financeiro não fecha (${why}), então não é seguro lê-lo como plano completo. Confira o PDF.`);result.notices.unshift('Plano lido de Termo Aditivo sem DE/PARA: confira com o documento. As rubricas fecham com os totais do quadro e com o Sub-Total.');}
  if(selected.filtered)result.notices.unshift('Adendo: leitura limitada aos trechos identificados como PARA. Confira se as demais rubricas não alteradas estão completas; um adendo parcial pode exigir o PUR consolidado.');
  if(adendo&&!selected.hasDe)result.notices.unshift('Adendo: foi encontrado PARA sem DE. Verifique a integridade do documento.');
  result.text=full;

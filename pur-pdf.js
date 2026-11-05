@@ -97,10 +97,10 @@ export function parsePur(pages,{duration:given,start,file='PUR.pdf'}){
  for(const cat of categories){values[cat]={2:Array(duration).fill(null)};sources[cat]={2:Array(duration).fill(null)};if(cat==='RHD'||cat==='RHI')for(const r of [10,15]){values[cat][r]=Array(duration).fill(null);sources[cat][r]=Array(duration).fill(null);}}
  const subtotals=Array(duration).fill(null),others={},otherTotals={},totals={},functions={RHD:new Map(),RHI:new Map()},seen=new Set();let moneyMonths=0;let headers=0,hoursTables=0;
  pages.forEach((lines,p)=>{
-  let header=null,kind='money',group=null,pending='',history=[];
+  let header=null,kind='money',group=null,pending='',history=[],rubRows=0;
   lines.forEach((line,i)=>{
    const h=detectHeader(line,start);
-   if(h){header=h;headers++;pending='';history=[];
+   if(h){header=h;headers++;pending='';history=[];rubRows=0;
     const context=lines.slice(Math.max(0,i-4),i+1).map(l=>norm(l.text)).join(' ');
     kind=/\bhoras?\b|h\/mes|\bhh\b|carga horaria/.test(context)?'hours':'money';
     group=null;for(const l of lines.slice(Math.max(0,i-4),i+1)){const r=rubrica(l.text);if(r==='RHD'||r==='RHI')group=r;}
@@ -120,7 +120,8 @@ export function parsePur(pages,{duration:given,start,file='PUR.pdf'}){
    const where=`${file}, p. ${p+1}`;
    if(isTotal(own)){pending='';if(kind==='hours')group=null;
     // Primeira linha de total de cada quadro financeiro: soma de todas as rubricas no mês.
-    else for(const {m,n} of nums)if(m<duration&&subtotals[m]===null)subtotals[m]=n;
+    // Só em quadro com rubricas: quadros de desembolso ou por etapa também têm linha de total.
+    else if(rubRows>=3)for(const {m,n} of nums)if(m<duration&&subtotals[m]===null)subtotals[m]=n;
     return;}
    if(kind==='money'){
     const cat=candidates.map(rubrica).find(Boolean);pending='';
@@ -128,7 +129,7 @@ export function parsePur(pages,{duration:given,start,file='PUR.pdf'}){
      others[o]??=Array(duration).fill(null);for(const {m,n} of nums)if(m<duration&&others[o][m]===null)others[o][m]=n;
      const end=line.cells.filter(c=>c.x1>header.lastX&&pdfNumber(c.text)!==null).pop();if(end&&!(o in otherTotals))otherTotals[o]=pdfNumber(end.text);
      return;}
-    moneyMonths=Math.max(moneyMonths,header.cols[header.cols.length-1].m+1);
+    rubRows++;moneyMonths=Math.max(moneyMonths,header.cols[header.cols.length-1].m+1);
     const beyond=line.cells.filter(c=>c.x1>header.lastX&&pdfNumber(c.text)!==null).pop();if(beyond&&!(cat in totals))totals[cat]=pdfNumber(beyond.text);
     for(const {m,n} of nums){if(m>=duration)continue;const key=`${cat}|${m}`;
      if(seen.has(key)){if(values[cat][2][m]!==n)notices.push(`${cat}, mês ${m+1}: o PDF tem mais de um valor planejado (${values[cat][2][m]} e ${n}). Foi mantido o primeiro; confira.`);continue;}

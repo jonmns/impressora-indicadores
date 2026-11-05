@@ -18,7 +18,7 @@ Repositório: https://github.com/jonmns/impressora-indicadores
 
 Sirva a pasta com `python -m http.server 8931`. Não abra `index.html` por `file://`.
 
-- `tests.html`: testes no navegador (65 verificações). Inclui OCR real com o Tesseract de `vendor/`: um quadro desenhado em canvas, com células apagadas da leitura para exercitar `fillGaps`.
+- `tests.html`: testes no navegador (70 verificações). Inclui OCR real com o Tesseract de `vendor/`: um quadro desenhado em canvas, com células apagadas da leitura para exercitar `fillGaps`.
 - `dev/run-tests.js` ou `dev/run_tests.py`: rodam `tests.html` no Chromium via Playwright. Uso: `python dev/run_tests.py http://127.0.0.1:8931`.
 - `dev/make_fixtures.py` e `dev/make_scan.py`: geram PDFs e planilha sintéticos. Dependências: pillow, playwright, reportlab, openpyxl.
 - `dev/run.js` ou `dev/run.py`: fluxo completo com PDFs de texto.
@@ -60,6 +60,8 @@ Detalhes do OCR em `pur-ocr.js`: passada rápida (escala 3) em todas as páginas
 - A leitura em bloco (psm 6) às vezes descarta o título "Para:" acima do quadro, e o adendo era bloqueado. `addTitles` resolve.
 - Em PDF de duas páginas, o carimbo não chegava ao mínimo de repetições e a página digitalizada não ia para o OCR.
 - Palavra solta de linha quebrada ("de", "Quadro de", "anterior.", "proposta.") virava marcador DE/PARA. Agora, sem dois-pontos, o marcador precisa estar em maiúsculas ou começar com maiúscula.
+- Linha de total de quadro de desembolso ou por etapa era tomada como Sub-Total. Agora só conta em quadro com pelo menos três rubricas.
+- "DE" de fragmento do OCR numa tabela de RH bloqueava o documento como "DE sem PARA". Sem PARA, o DE só conta se vier antes de um quadro de meses com rubricas.
 - "Sub-T otal" (letras separadas no PDF) não era reconhecido como total, e a conferência acusava divergência falsa em todos os meses.
 - O OCR era pulado quando só o cronograma físico tinha cabeçalho de meses em texto e o quadro financeiro era imagem. Agora o OCR roda sempre que não há quadro financeiro legível.
 - `fillGaps` ampliava o recorte 2x fixo; com letra maior, os dígitos ficavam altos demais para o Tesseract. Agora mira uns 32 px.
@@ -78,7 +80,7 @@ Itens 4 a 8 resolvidos (avisos de `reviewOcr`, conferência pelo Sub-Total, vari
 
 4. Digitalização ruim ainda lê pouco (`PUR_scan_ruim.pdf`: 16 corretos de 70). Os errados têm aviso, mas o resultado não serve. Caminhos: binarização adaptativa por região, OCR com dígitos maiores na passada fina, ou pedir ao usuário um PDF melhor quando o Sub-Total não fecha.
 5. Testar com mais PUR e adendos reais digitalizados. Só um adendo real passou pelo OCR.
-7. **Decisão do usuário: Termo Aditivo com PUR completo, sem DE/PARA.** Oito dos PUR reais testados trazem "Termo Aditivo" no texto e um PUR inteiro, sem quadros DE/PARA. A regra atual os bloqueia como adendo sem PARA. Três deles só eram lidos antes por acaso: uma palavra solta de linha quebrada ("de", "proposta.") virava marcador, e a leitura começava dali. Opções: tratar como PUR consolidado com aviso forte, ou manter o bloqueio.
+7. **Termo Aditivo sem DE/PARA (decidido: ler como PUR completo).** Lido como plano vigente só se o quadro fechar: cada rubrica com total e sem mês sem leitura, soma dos meses igual ao total, e Sub-Total conferido em pelo menos um mês sem divergência (`consolidatedProblem`). Sempre com o aviso "Plano lido de Termo Aditivo sem DE/PARA". Se não fechar, o bloqueio diz o motivo. Na rodada com os PUR reais, cinco passaram a ser lidos; os digitalizados continuam bloqueados porque o OCR deixa diferenças de centavos ou meses sem leitura. Avaliar se uma diferença de poucos centavos com aviso pode ser aceita.
 6. `valueColumns` aceita como coluna de valores os traços dos rótulos ("I - uso..."), e `fillGaps` relê essa coluna à toa. Não erra, só gasta tempo.
 
 ### Experiência
