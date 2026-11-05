@@ -6,8 +6,11 @@ import {textlessPages,ocrPages,reconcile} from './pur-ocr.js';
 
 const brl=n=>n.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
 const normalize=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\s+/g,' ').trim();
-const marker=s=>{
+export const marker=s=>{
  const t=normalize(s).replace(/[\s:;.,\-–—]+$/,'');
+ // Sem dois-pontos e fora de maiúsculas, a linha precisa começar com maiúscula ("De", "Para", "Situação anterior"),
+ // e "Quadro de" não vale: no texto corrido, uma linha quebrada pode ser só "de", "Quadro de" ou "anterior.". O OCR às vezes perde os dois-pontos.
+ const raw=String(s||'').trim();if(!raw.includes(':')&&raw!==raw.toUpperCase()&&(!/^\p{Lu}/u.test(raw)||/ de$/.test(t)))return null;
  if(/^(?:situacao|redacao|quadro|versao)?\s*(?:anterior|de)$/.test(t))return 'DE';
  if(/^(?:situacao|redacao|quadro|versao)?\s*(?:proposta|atualizada|nova|para)$/.test(t))return 'PARA';
  if(/^(?:onde se le|onde esta escrito)$/.test(t))return 'DE';
@@ -101,7 +104,8 @@ export async function readPurPdf(file,options={}){
   if(durationFromHeaders(rotated))pages=pages.map((original,i)=>[...original,...rotated[i]]);
  }
  let ocr=null;
- if(!durationFromHeaders(pages)){
+ // Cabeçalho de meses no texto não basta: o cronograma físico pode ter texto e o quadro financeiro ser imagem.
+ if(!durationFromHeaders(pages)||!parsePur(pages,{start:options.start,file:file.name}).moneyMonths){
   const blank=textlessPages(pages);
   if(blank.length){
    ocr=await ocrPages(file,buffer,blank,(a,b)=>options.onProgress?.(b?`Lendo o PDF digitalizado (OCR): página ${a} de ${b}…`:a));

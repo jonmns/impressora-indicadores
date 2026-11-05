@@ -59,6 +59,9 @@ Detalhes do OCR em `pur-ocr.js`: passada rápida (escala 3) em todas as páginas
 - O cabeçalho dos quadros sumia no OCR por causa das linhas de grade.
 - A leitura em bloco (psm 6) às vezes descarta o título "Para:" acima do quadro, e o adendo era bloqueado. `addTitles` resolve.
 - Em PDF de duas páginas, o carimbo não chegava ao mínimo de repetições e a página digitalizada não ia para o OCR.
+- Palavra solta de linha quebrada ("de", "Quadro de", "anterior.", "proposta.") virava marcador DE/PARA. Agora, sem dois-pontos, o marcador precisa estar em maiúsculas ou começar com maiúscula.
+- "Sub-T otal" (letras separadas no PDF) não era reconhecido como total, e a conferência acusava divergência falsa em todos os meses.
+- O OCR era pulado quando só o cronograma físico tinha cabeçalho de meses em texto e o quadro financeiro era imagem. Agora o OCR roda sempre que não há quadro financeiro legível.
 - `fillGaps` ampliava o recorte 2x fixo; com letra maior, os dígitos ficavam altos demais para o Tesseract. Agora mira uns 32 px.
 
 ## Pendências
@@ -75,6 +78,7 @@ Itens 4 a 8 resolvidos (avisos de `reviewOcr`, conferência pelo Sub-Total, vari
 
 4. Digitalização ruim ainda lê pouco (`PUR_scan_ruim.pdf`: 16 corretos de 70). Os errados têm aviso, mas o resultado não serve. Caminhos: binarização adaptativa por região, OCR com dígitos maiores na passada fina, ou pedir ao usuário um PDF melhor quando o Sub-Total não fecha.
 5. Testar com mais PUR e adendos reais digitalizados. Só um adendo real passou pelo OCR.
+7. **Decisão do usuário: Termo Aditivo com PUR completo, sem DE/PARA.** Oito dos PUR reais testados trazem "Termo Aditivo" no texto e um PUR inteiro, sem quadros DE/PARA. A regra atual os bloqueia como adendo sem PARA. Três deles só eram lidos antes por acaso: uma palavra solta de linha quebrada ("de", "proposta.") virava marcador, e a leitura começava dali. Opções: tratar como PUR consolidado com aviso forte, ou manter o bloqueio.
 6. `valueColumns` aceita como coluna de valores os traços dos rótulos ("I - uso..."), e `fillGaps` relê essa coluna à toa. Não erra, só gasta tempo.
 
 ### Experiência

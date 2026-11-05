@@ -1,6 +1,6 @@
 import {categories,NS,openWorkbook,extract,exportWorkbook,missing,calculated,number,month,financialInfo,durationFromText} from './engine.js';
 import {pdfPages,parsePur,pdfNumber} from './pur-pdf.js';
-import {readPurPdf,reviewOcr,checkSubtotals} from './pur-v2.js';
+import {readPurPdf,reviewOcr,checkSubtotals,marker} from './pur-v2.js';
 import {textlessPages,repairNumber,repairHeader,wordsToLines,reconcile,valueColumns,addTitles,fillGaps,clean,skewAngle} from './pur-ocr.js';
 /* PDF mínimo com texto posicionado (Helvetica), para testar a leitura real pelo pdf.js sem documentos privados. */
 function makePdf(pages){
@@ -93,11 +93,12 @@ try{
  const linha=(y,label,vals)=>[{x:30,y,text:label},...vals.map((v,i)=>({x:200+i*60,y,text:v}))];
  const sete=['I - Programas de computador','II - Laboratório','III a - Recursos humanos diretos','III b - Recursos humanos indiretos','V - Materiais de consumo','VIII - Serviços técnicos de terceiros','IX - Outros correlatos'];
  const quadro=[...linha(540,'Rubricas',['Mês 1','Mês 2','Mês 3','Mês 4','TOTAL']),...sete.flatMap((l,i)=>linha(525-i*15,l,['100,00','100,00','100,00','100,00','400,00'])),
-  ...linha(420,'VI - Viagens',['50,00','-','-','-','50,00']),...linha(405,'VII - Treinamento',['-','-','25,00','-','25,00']),...linha(390,'Sub-Total',['750,00','700,00','725,00','790,00','2.965,00'])];
+  ...linha(420,'VI - Viagens',['50,00','-','-','-','50,00']),...linha(405,'VII - Treinamento',['-','-','25,00','-','25,00']),...linha(390,'Sub-T otal',['750,00','700,00','725,00','790,00','2.965,00'])];
  const sub=parsePur(await pdfPages(makePdf([quadro])),{duration:4,start,file:'sub.pdf'});
  assert(sub.subtotals.join()==='750,700,725,790'&&sub.others.Viagens.join()==='50,0,0,0'&&sub.others.Treinamento[2]===25&&sub.otherTotals.Viagens===50,'PDF: Sub-Total e rubricas fora do relatório lidos por mês');
  const conf=checkSubtotals(sub);const avisoSub=sub.notices.find(n=>n.includes('Sub-Total'))||'';
  assert(conf.checked===4&&conf.bad===1&&avisoSub.includes('mês 4 (soma 700,00, Sub-Total 790,00)')&&!avisoSub.includes('mês 1 ')&&sub.values.RHD[2][3]===100,'PDF: mês divergente do Sub-Total vira aviso sem alterar valores');
+ assert(marker('de')===null&&marker('para')===null&&marker('DE:')==='DE'&&marker('Para:')==='PARA'&&marker('PARA')==='PARA'&&marker('Situação anterior')==='DE'&&marker('Quadro de')===null&&marker('anterior.')===null&&marker('QUADRO ANTERIOR')==='DE'&&marker('Leia-se')==='PARA'&&marker('Para')==='PARA'&&marker('De')==='DE','adendo: "de" solto no texto corrido não é marcador DE');
  const info=financialInfo(fin);assert(info.project==='Projeto sintético'&&info.start===month(46266)&&info.lastClosed===month(46266),'financeiro: projeto, início e última competência realizada');
  assert(durationFromText('Prazo de execução: 15 (quinze) meses')===15&&durationFromText('A duração do projeto é de 12 meses')===12&&durationFromText('Mês 1 Mês 2')===null&&durationFromText('prazo de 30 dias')===null,'duração lida do texto do PUR');
  const auto=parsePur(pages,{start,file:'PUR_sintetico.pdf'});assert(auto.duration===12&&auto.values.Equipamentos[2].length===12,'duração deduzida do cronograma quando o texto não informa');
