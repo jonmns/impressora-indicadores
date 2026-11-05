@@ -73,5 +73,5 @@ Detalhes do OCR em `pur-ocr.js`: passada rápida (escala 3) em todas as páginas
 
 12. Versionar `dev/` e criar testes de OCR. Avaliar CI.
 13. Citar `pur-ocr.js` na seção Arquitetura do `README.md`.
-14. Avaliar remover `LEIA-ME-ANTES-DE-ENVIAR.txt`, que descreve uma atualização antiga por upload.
+14. ~~Remover `LEIA-ME-ANTES-DE-ENVIAR.txt`~~ Resolvido: arquivo removido e as observações úteis foram para o `README.md`.
 15. `rotatedPages` parece redundante agora que o OCR cobre páginas giradas. Confirmar antes de remover.
