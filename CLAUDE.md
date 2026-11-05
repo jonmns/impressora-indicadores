@@ -18,12 +18,13 @@ Repositório: https://github.com/jonmns/impressora-indicadores
 
 Sirva a pasta com `python -m http.server 8931`. Não abra `index.html` por `file://`.
 
-- `tests.html`: testes no navegador (53 verificações em 9e9ccda).
+- `tests.html`: testes no navegador (58 verificações).
 - `dev/run-tests.js`: roda `tests.html` no Chromium via Playwright. Uso: `node dev/run-tests.js http://127.0.0.1:8931`.
 - `dev/make_fixtures.py` e `dev/make_scan.py`: geram PDFs e planilha sintéticos. Dependências: pillow, playwright, reportlab, openpyxl.
 - `dev/run.js`: fluxo completo com PDFs de texto.
 - `dev/ocr.js`: fluxo completo com PDF digitalizado sintético, comparando com `scan_truth.json`. Resultado atual: 105 corretos, 0 errados, 0 faltando.
 - `dev/dbg.js`: despeja o texto do OCR por página.
+- `dev/flow_real.py`, `dev/ui_real.py`, `dev/check_real.py` (Playwright Python e openpyxl): fluxo pela tela com documentos reais e conferência do `.xlsx` contra a planilha financeira. Passe os caminhos por argumento e grave a saída fora do repositório.
 
 Antes de rodar `dev/`, instale `playwright` e gere as fixtures em uma pasta fora do versionamento.
 
@@ -51,9 +52,9 @@ Detalhes do OCR em `pur-ocr.js`: passada rápida (escala 3) em todas as páginas
 
 ### Uso real
 
-1. **Validar pelo botão.** O PUR real foi testado por script na aba, chamando os módulos. Falta o fluxo completo na tela: Extrair, conferir, gerar o `.xlsx` e abrir o arquivo. O usuário precisa fornecer os arquivos localmente.
-2. **Horas e profissionais previstos.** O PDF testado não tem quadro mensal reconhecido e 60 campos ficam pendentes, o que bloqueia a exportação. Decidir com o usuário: planilha de apoio, preenchimento manual ou derivar dos quadros de RH por etapa.
-3. **Conferir os dados realizados e a exportação** com o documento real. Só o planejado foi conferido.
+1. **Validar pelo botão.** Feito com JIGX e Hermes (PDF de texto): Extrair, conferir, gerar o `.xlsx` e abrir no Excel sem reparo. Rodado em lote nos 14 projetos de 09/2026 com `dev/flow_real.py`. Falhas abertas, todas de leitura do PDF (ver itens 7 e 16): Mercurius sem duração; Storm, Zapy e MAWE MIRI bloqueados por falta de quadro PARA; Zeus e Aegis com R$ planejado pendente após OCR. Aurora é bloqueio correto: o fechamento 09/2026 passa do fim do projeto (07/2026).
+2. **Horas e profissionais previstos.** Resolvido: o PUR real só traz horas totais por função e por etapa. Nas abas RHD e RHI da conferência, o usuário informa o total de horas e de profissionais e o site distribui a média pelos meses (`spreadPlanned` em `engine.js`; o último mês absorve o arredondamento). A aba "Profissionais Previstos" da planilha financeira não serve de fonte: está vazia ou com datas erradas.
+3. **Conferir realizado e exportação.** Feito com `dev/check_real.py`: JIGX 668 verificações sem divergência; Hermes 308 verificações, 3 divergências de centavos no último mês do planejado porque os meses do próprio PUR somam R$ 0,01 a 0,03 acima do total (a planilha ajusta o último mês; o site segue o PDF).
 
 ### Confiabilidade do OCR
 
@@ -75,3 +76,4 @@ Detalhes do OCR em `pur-ocr.js`: passada rápida (escala 3) em todas as páginas
 13. Citar `pur-ocr.js` na seção Arquitetura do `README.md`.
 14. Avaliar remover `LEIA-ME-ANTES-DE-ENVIAR.txt`, que descreve uma atualização antiga por upload.
 15. `rotatedPages` parece redundante agora que o OCR cobre páginas giradas. Confirmar antes de remover.
+16. Para PDF de texto, avisar quando a soma dos meses de uma rubrica difere do total do quadro (hoje `reconcile` só roda com OCR).
