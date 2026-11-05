@@ -88,7 +88,18 @@ Itens 4 a 8 resolvidos (avisos de `reviewOcr`, conferência pelo Sub-Total, vari
 
 9. ~~Cancelar o OCR~~ Feito: botão "Cancelar leitura" (`AbortController` de `app.js` até `ocrPages`, que encerra os workers e o pdf.js; cancelou em cerca de 1,7 s no teste e permite nova extração).
 10. ~~Navegador sem SIMD~~ Feito: sem SIMD o núcleo não carrega, então `ocrPages` checa `hasSimd()` e mostra mensagem clara (atualizar o navegador ou usar PDF com texto). Testado simulando `WebAssembly.validate` falso; não há núcleo não SIMD em `vendor/`.
-11. **Adiado**: cronometrar o documento longo, com a janela visível e em segundo plano, uma única vez depois de juntar os branches de OCR. Antes, com a janela visível, levava de 4 a 7 minutos.
+11. ~~Cronometrar o OCR~~ Medido em 5/11/2026 na `main` 359d9b0, Chrome em janela visível e em segundo plano (outra aba na frente), máquina com 16 threads (6 workers do Tesseract). Documentos sintéticos de `dev/make_scan.py`. Tempos em segundos, do clique em Extrair até o fim:
+
+    | Documento | Janela | Preparar + 1ª página | Passada rápida | Releitura dos quadros (inclui `fillGaps`) | Total |
+    |---|---|---|---|---|---|
+    | 4 páginas, 2 quadros | visível | 5,4 | 1,4 | 6,7 | 13,5 |
+    | 4 páginas, 2 quadros | segundo plano | 10,6 | 2,9 | 35,5 | 48,9 |
+    | 42 páginas, 2 quadros | visível | 5,9 | 33,2 | 7,3 | 46,4 |
+    | 42 páginas, 2 quadros | segundo plano | 11,0 | 75,1 | 32,3 | 118,4 |
+    | 2 páginas, 1 quadro | visível | 4,4 | 0 | 4,9 | 9,3 |
+    | 2 páginas, 1 quadro | segundo plano | 9,8 | 0,1 | 26,8 | 36,7 |
+
+    Em segundo plano o OCR leva de 2,5 a 4 vezes mais, sobretudo na releitura em escala 5. Mesmo assim termina e não trava. A passada rápida custa cerca de 0,8 s por página com a janela visível e 1,8 s em segundo plano. `fillGaps` roda dentro da releitura e não foi separado, porque isso exigiria alterar o código. Estes PDFs têm poucos quadros; o documento real longo (4 a 7 minutos antes) não foi cronometrado e depende de ter muitos quadros mensais.
 
 ### Manutenção
 
