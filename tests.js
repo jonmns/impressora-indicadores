@@ -113,6 +113,9 @@ try{
   assert(!consolidatedOk(r([100,200.06],300),{checked:2,bad:0},false)&&!consolidatedOk(r([100,200.5],300),{checked:2,bad:0},true),'diferença de centavos só com OCR, e até R$ 0,10');}
  let barrado='';try{await readPurPdf(new File([aditivo('190,00','790,00')],'aditivo.pdf',{type:'application/pdf'}),{start});}catch(e){barrado=e.message;}
  assert(barrado.includes('não fecha')&&barrado.includes('Correlatos'),'aditivo sem DE/PARA cuja linha não fecha com o total continua bloqueado');
+ {const dupPos=sheet('Posição Financeira',{...posCells,O7:46267}),dupFin={sheets:{...fin.sheets,pos:dupPos}};
+  const ok=extract(dupFin,null,{project:'Sintético',start,duration:2,closed:1});assert(ok.notices.some(n=>n.includes('coluna O repete')),'planilha: data repetida depois do fim do projeto é ignorada com aviso');
+  let dup='';try{extract(dupFin,null,{project:'Sintético',start,duration:3,closed:1});}catch(e){dup=e.message;}assert(dup.includes('Competência duplicada'),'planilha: competência duplicada dentro do projeto continua bloqueando');}
  const info=financialInfo(fin);assert(info.project==='Projeto sintético'&&info.start===month(46266)&&info.lastClosed===month(46266),'financeiro: projeto, início e última competência realizada');
  assert(durationFromText('Prazo de execução: 15 (quinze) meses')===15&&durationFromText('A duração do projeto é de 12 meses')===12&&durationFromText('Mês 1 Mês 2')===null&&durationFromText('prazo de 30 dias')===null,'duração lida do texto do PUR');
  const auto=parsePur(pages,{start,file:'PUR_sintetico.pdf'});assert(auto.duration===12&&auto.values.Equipamentos[2].length===12,'duração deduzida do cronograma quando o texto não informa');
