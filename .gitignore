@@ -6,3 +6,7 @@ work/
 *.pdf
 *_Memoria.json
 .env*
+__pycache__/
+dev/fixtures/
+dev/out/
+*.log

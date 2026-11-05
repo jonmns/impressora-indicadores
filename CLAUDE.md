@@ -19,7 +19,7 @@ Repositório: https://github.com/jonmns/impressora-indicadores
 Sirva a pasta com `python -m http.server 8931`. Não abra `index.html` por `file://`.
 
 - `tests.html`: testes no navegador (87 verificações). Inclui OCR real com o Tesseract de `vendor/`: um quadro desenhado em canvas, com células apagadas da leitura para exercitar `fillGaps`.
-- `dev/run-tests.js` ou `dev/run_tests.py`: rodam `tests.html` no Chromium via Playwright. Uso: `python dev/run_tests.py http://127.0.0.1:8931`.
+- `dev/run-tests.js` ou `dev/run_tests.py`: (também rodam no CI, `.github/workflows/tests.yml`) rodam `tests.html` no Chromium via Playwright. Uso: `python dev/run_tests.py http://127.0.0.1:8931`.
 - `dev/make_fixtures.py` e `dev/make_scan.py`: geram PDFs e planilha sintéticos. Dependências: pillow, playwright, reportlab, openpyxl.
 - `dev/run.js` ou `dev/run.py`: fluxo completo com PDFs de texto.
 - `dev/ocr.js` ou `dev/ocr.py`: fluxo completo com PDF digitalizado sintético. `ocr.py` aceita o nome do PDF (`python dev/ocr.py URL PASTA PUR_scan_270.pdf`) e reprova se houver valor errado sem aviso na rubrica.
@@ -92,7 +92,7 @@ Itens 4 a 8 resolvidos (avisos de `reviewOcr`, conferência pelo Sub-Total, vari
 
 ### Manutenção
 
-12. Versionar `dev/` e criar testes de OCR. Avaliar CI.
+12. ~~Versionar `dev/` e avaliar CI~~ Feito: `dev/` já estava versionado (só scripts; `.gitignore` agora também bloqueia `dev/fixtures/`, `dev/out/`, `__pycache__/` e `*.log`). `.github/workflows/tests.yml` (**ainda não enviado**: o token do push não tem o escopo `workflow`; o arquivo precisa ser commitado por quem tem esse acesso) roda em push e PR, com ações fixadas por SHA e Playwright 1.64.1 / openpyxl 3.1.5: serve a pasta, roda `dev/run_tests.py` (`tests.html`) e `dev/run.py` com PDFs de texto gerados por `dev/make_fixtures.py`, reprovando em erro de tela ou da página. O OCR completo (`dev/ocr.py`) fica fora do CI por ser lento.
 13. Citar `pur-ocr.js` na seção Arquitetura do `README.md`.
 14. ~~Remover `LEIA-ME-ANTES-DE-ENVIAR.txt`~~ Resolvido: arquivo removido e as observações úteis foram para o `README.md`.
 15. ~~`rotatedPages` redundante?~~ Resolvido: **fica**. Testado com PDFs de texto sintéticos (cabeçalho girado 90° e 270°; página inteira girada 90° e 270°), com e sem a função: cabeçalho girado dá o mesmo resultado nos dois casos (12 meses, mesmos valores), mas com a página inteira girada 270° sem `rotatedPages` o documento falha ("Não encontrei a quantidade de meses") e com ela a duração é achada. Custo medido: 0,0 a 0,17 s por PDF de uma página, contra minutos de OCR. Limite conhecido: com a página inteira girada, só o cabeçalho vem da segunda leitura; os valores das rubricas ficam pendentes (e a página girada 90° não acha 12 meses nem com ela). Comentário no código explica.
