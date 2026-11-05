@@ -3,6 +3,7 @@
 import {pdfPages,parsePur,linesFromItems} from './pur-pdf.js';
 import {durationFromText,categories,rubrica} from './engine.js';
 import {textlessPages,ocrPages,reconcile} from './pur-ocr.js';
+import {rhTotals} from './pur-rh.js';
 
 const brl=n=>n.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
 const normalize=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\s+/g,' ').trim();
@@ -172,6 +173,7 @@ export async function readPurPdf(file,options={}){
   result.notices.unshift('Plano lido de Termo Aditivo sem DE/PARA: confira com o documento. '+(subs.checked?`O Sub-Total confere em ${subs.checked} ${subs.checked===1?'mês':'meses'}.`:'O Sub-Total não pôde ser conferido; só as rubricas foram conferidas com os totais.'));}
  if(selected.filtered)result.notices.unshift('Adendo: leitura limitada aos trechos identificados como PARA. Confira se as demais rubricas não alteradas estão completas; um adendo parcial pode exigir o PUR consolidado.');
  if(adendo&&!selected.hasDe)result.notices.unshift('Adendo: foi encontrado PARA sem DE. Verifique a integridade do documento.');
+ const rh=rhTotals(pages,file.name);result.rhTotals=rh.totals;result.notices.push(...rh.notices);
  result.text=full;
  result.adendo={detected:adendo,usedPara:selected.filtered,hasDe:selected.hasDe,hasPara:selected.hasPara,headerMonths:byHeader};
  return result;

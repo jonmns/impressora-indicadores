@@ -18,12 +18,13 @@ Repositório: https://github.com/jonmns/impressora-indicadores
 
 Sirva a pasta com `python -m http.server 8931`. Não abra `index.html` por `file://`.
 
-- `tests.html`: testes no navegador (77 verificações). Inclui OCR real com o Tesseract de `vendor/`: um quadro desenhado em canvas, com células apagadas da leitura para exercitar `fillGaps`.
+- `tests.html`: testes no navegador (87 verificações). Inclui OCR real com o Tesseract de `vendor/`: um quadro desenhado em canvas, com células apagadas da leitura para exercitar `fillGaps`.
 - `dev/run-tests.js` ou `dev/run_tests.py`: rodam `tests.html` no Chromium via Playwright. Uso: `python dev/run_tests.py http://127.0.0.1:8931`.
 - `dev/make_fixtures.py` e `dev/make_scan.py`: geram PDFs e planilha sintéticos. Dependências: pillow, playwright, reportlab, openpyxl.
 - `dev/run.js` ou `dev/run.py`: fluxo completo com PDFs de texto.
 - `dev/ocr.js` ou `dev/ocr.py`: fluxo completo com PDF digitalizado sintético. `ocr.py` aceita o nome do PDF (`python dev/ocr.py URL PASTA PUR_scan_270.pdf`) e reprova se houver valor errado sem aviso na rubrica.
 - `dev/dbg.js` ou `dev/dbg.py`: despeja o texto do OCR por página.
+- `dev/flow_real.py`, `dev/ui_real.py`, `dev/check_real.py` (Playwright Python e openpyxl): fluxo pela tela com documentos reais e conferência do `.xlsx` contra a planilha financeira. Passe os caminhos por argumento e grave a saída fora do repositório.
 
 As versões em Python servem para máquinas sem Node. Antes de rodar `dev/`, instale as dependências (`python -m pip install pillow playwright reportlab openpyxl` e `python -m playwright install chromium`) e gere as fixtures em uma pasta fora do versionamento. Se outra sessão já usa a porta 8931, sirva em outra porta com `--directory` apontando para a sua cópia: o servidor de outra pasta responde com o código errado sem avisar.
 
@@ -45,7 +46,7 @@ Resultado atual de `dev/ocr.py` (corretos / errados / faltando / errados sem avi
 2. Sem cabeçalho "Mês N", `rotatedPages` tenta texto vertical.
 3. Ainda sem cabeçalho, `textlessPages` acha as páginas sem texto útil e `ocrPages` faz o OCR (`pur-ocr.js`).
 4. `filterCurrent` isola os quadros PARA de adendos. Adendo sem PARA identificável é bloqueado de propósito.
-5. `parsePur` monta valores, totais e `moneyMonths`.
+5. `parsePur` monta valores, totais e `moneyMonths`. `rhTotals` (`pur-rh.js`) lê as horas de RH do detalhamento financeiro nas páginas sem filtro.
 6. A duração vem do quadro financeiro (`moneyMonths`), porque cronograma físico e vigência podem ser maiores que a execução.
 7. Com OCR, `reviewOcr` compara cada rubrica com a coluna de total (`reconcile`) e avisa: total que parece lido errado, valor corrigido pela soma, células sem leitura que viraram zero (quantas e onde) e rubrica que não fecha.
 8. `checkSubtotals` confere cada mês contra a linha Sub-Total, somando as sete rubricas e as que não vão para o relatório (livros, viagens, treinamento, lidas por `parsePur` em `others`). Divergência vira aviso; nenhum valor é alterado.
@@ -70,9 +71,9 @@ Detalhes do OCR em `pur-ocr.js`: passada rápida (escala 3) em todas as páginas
 
 ### Uso real
 
-1. **Validar pelo botão.** O PUR real foi testado por script na aba, chamando os módulos. Falta o fluxo completo na tela: Extrair, conferir, gerar o `.xlsx` e abrir o arquivo. O usuário precisa fornecer os arquivos localmente.
-2. **Horas e profissionais previstos.** O PDF testado não tem quadro mensal reconhecido e 60 campos ficam pendentes, o que bloqueia a exportação. Decidir com o usuário: planilha de apoio, preenchimento manual ou derivar dos quadros de RH por etapa.
-3. **Conferir os dados realizados e a exportação** com o documento real. Só o planejado foi conferido.
+1. **Validar pelo botão.** Feito com `dev/flow_real.py` num lote de 14 projetos reais (os documentos ficam fora do repositório). 4 projetos (2 com texto, 2 com OCR) saem sem pendência: Extrair, conferir, gerar o `.xlsx` e abrir no Excel sem reparo. Falhas abertas, todas de leitura do PDF (itens 7 e 16): 1 projeto sem duração; 5 adendos bloqueados por falta de quadro PARA; 2 projetos com R$ planejado e detalhamento de RH ilegíveis após o OCR (ficam pendentes). 1 projeto é bloqueio correto (o fechamento passa do fim do projeto) e 1 não tinha PDF.
+2. **Horas e profissionais previstos.** Resolvido. O PUR real não tem quadro mensal de horas; `pur-rh.js` lê o "Detalhamento dos recursos financeiros" (tabelas c) RH Diretos e d) RH Indiretos, PARA em adendo, aceita só se fechar com o TOTAL; uma linha sem valor no OCR é deduzida do TOTAL quando horas × custo/hora confere, com aviso) e `extract` distribui a média das horas totais pelos meses, com o número de cargos como profissionais previstos. Se a leitura falhar, o usuário informa os totais nas abas RHD e RHI da conferência (`spreadPlanned` em `engine.js`). A aba "Profissionais Previstos" da planilha financeira não serve de fonte: está vazia ou com datas erradas.
+3. **Conferir realizado e exportação.** Feito com `dev/check_real.py` nos 4 projetos exportados: entre 290 e 668 verificações por projeto; um sem divergência e três só com 1 a 3 centavos no último mês do planejado, porque os meses do próprio PUR somam um pouco acima do total e a planilha ajusta o último mês (o site segue o PDF).
 
 ### Confiabilidade do OCR
 
@@ -95,3 +96,4 @@ Itens 4 a 8 resolvidos (avisos de `reviewOcr`, conferência pelo Sub-Total, vari
 13. Citar `pur-ocr.js` na seção Arquitetura do `README.md`.
 14. Avaliar remover `LEIA-ME-ANTES-DE-ENVIAR.txt`, que descreve uma atualização antiga por upload.
 15. `rotatedPages` parece redundante agora que o OCR cobre páginas giradas. Confirmar antes de remover.
+16. Para PDF de texto, avisar quando a soma dos meses de uma rubrica difere do total do quadro (hoje `reconcile` só roda com OCR).

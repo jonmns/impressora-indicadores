@@ -1,6 +1,7 @@
-import {categories,NS,openWorkbook,extract,exportWorkbook,missing,calculated,number,month,financialInfo,durationFromText} from './engine.js';
+import {categories,NS,openWorkbook,extract,exportWorkbook,missing,calculated,number,month,financialInfo,durationFromText,spreadPlanned} from './engine.js';
 import {pdfPages,parsePur,pdfNumber} from './pur-pdf.js';
 import {readPurPdf,reviewOcr,checkSubtotals,marker,consolidatedReview} from './pur-v2.js';
+import {rhTotals} from './pur-rh.js';
 import {textlessPages,repairNumber,repairHeader,wordsToLines,reconcile,valueColumns,addTitles,fillGaps,clean,skewAngle} from './pur-ocr.js';
 /* PDF mínimo com texto posicionado (Helvetica), para testar a leitura real pelo pdf.js sem documentos privados. */
 function makePdf(pages){
@@ -47,10 +48,15 @@ try{
  const start=month(46266),data=extract(fin,plan,{project:'Sintético',start,duration:12,closed:1});
  assert(data.values.RHD[16][0]===15,'horas vêm de J, não salário K');assert(data.values.RHD[11][0]===1,'CPF duplicado não duplica pessoas');assert(data.values.RHD[3][1]===null,'outubro projetado fica vazio');assert(data.values.Equipamentos[3][0]===10,'rubricas mapeadas');
  assert(missing(data)>0,'RH planejado ausente precisa completar');
+ const pend=missing(data);spreadPlanned(data,'RHD',15,10000);spreadPlanned(data,'RHD',10,12);
+ assert(missing(data)===pend-24,'média preenche horas e profissionais previstos');
+ assert(data.values.RHD[15][0]===833.33&&data.values.RHD[15][11]===833.37&&Math.round(data.values.RHD[15].reduce((a,b)=>a+b,0)*100)===1000000,'média de horas fecha com o total');
+ assert(data.values.RHD[10].every(v=>v===12)&&/Média informada/.test(data.sources.RHD[15][0]),'profissionais repetidos e fonte registrada');
+ let rejected=0;for(const args of [['RHD',10,2.5],['RHD',15,-1],['Equipamentos',15,10]])try{spreadPlanned(data,...args);}catch{rejected++;}assert(rejected===3,'distribuição recusa fração, negativo e rubrica sem RH');
  let blocked=false;try{await exportWorkbook(data);}catch{blocked=true;}assert(blocked,'ausência bloqueia exportação');
  for(const cat of categories)for(const [r,v]of Object.entries(data.values[cat]))for(let m=0;m<v.length;m++)if(v[m]===null&&(![3,11,16].includes(+r)||m<data.closed))v[m]=0;
  assert(missing(data)===0,'zero explícito é válido');assert(calculated(data,'Equipamentos',6,0)===.1,'percentual acumulado');
- const blob=await exportWorkbook(data),book=await openWorkbook(await blob.arrayBuffer());assert(book.sheets.RHD.get('B16')===15,'exportação preserva horas');assert(book.sheets.RHD.get('C3')===null,'exportação sem realizado futuro');assert(book.sheets.Equipamentos.cells.B4.formula==='B2','fórmula preservada');assert(book.sheets.Equipamentos.get('B6')===.1,'cache percentual calculado');assert(book.sheets['Laboratório'].get('M2')===101,'último mês planejado');
+ const blob=await exportWorkbook(data),book=await openWorkbook(await blob.arrayBuffer());assert(book.sheets.RHD.get('B16')===15,'exportação preserva horas');assert(book.sheets.RHD.get('B15')===833.33&&book.sheets.RHD.get('M15')===833.37&&book.sheets.RHD.get('B10')===12,'exportação leva a média de RH');assert(book.sheets.RHD.get('C3')===null,'exportação sem realizado futuro');assert(book.sheets.Equipamentos.cells.B4.formula==='B2','fórmula preservada');assert(book.sheets.Equipamentos.get('B6')===.1,'cache percentual calculado');assert(book.sheets['Laboratório'].get('M2')===101,'último mês planejado');
  data.duration=24;for(const cat of categories)for(const [r,v]of Object.entries(data.values[cat]))while(v.length<24)v.push([3,11,16].includes(+r)?null:0);
  const extended=await openWorkbook(await (await exportWorkbook(data)).arrayBuffer());assert(extended.sheets.RHD.get('Y1')==='Mês 24','extensão até 24');assert(extended.sheets.RHD.cells.Y17.formula==='Y15+X17','fórmula mês 24');
  data.values.Equipamentos[2][0]=null;assert(missing(data)===1,'alteração volta a expor pendência');
@@ -121,6 +127,17 @@ try{
   const ok=extract(dupFin,null,{project:'Sintético',start,duration:2,closed:1});assert(ok.notices.some(n=>n.includes('coluna O repete')),'planilha: data repetida depois do fim do projeto é ignorada com aviso');
   let dup='';try{extract(dupFin,null,{project:'Sintético',start,duration:3,closed:1});}catch(e){dup=e.message;}assert(dup.includes('Competência duplicada'),'planilha: competência duplicada dentro do projeto continua bloqueando');}
  const info=financialInfo(fin);assert(info.project==='Projeto sintético'&&info.start===month(46266)&&info.lastClosed===month(46266),'financeiro: projeto, início e última competência realizada');
+ const L=t=>({text:t,cells:[]}),detail=[['DETALHAMENTO DOS RECURSOS FINANCEIROS:','c) Recursos Humanos Diretos:','DE:','# Descrição Horas Totais Custo/Hora Valor (R$)','1 Gerente antigo 1.200 R$ 10,00 R$ 12.000,00','TOTAL R$ 12.000,00','PARA:','1 Desenvolvedor Frontend 1600 60,00 96.000,00','2 Desenvolvedor IA / Cientista','de dados 600 100,00 60.000,00','TOTAL R$ 156.000,00','DE:','d) Recursos Humanos Indiretos:','1 Gerente administrativo 100 R$ 50,00 R$ 5.000,00','TOTAL R$ 5.000,00','PARA:','1 Analista Financeiro 700 70,00 49.000,00','2 Auxiliar Administrativo 400 30,00 12.000,00','TOTAL 61.000,00','e) Aquisição de Livros e Periódicos:','1 Livro 3 10,00 30,00'].map(L)];
+ const rh=rhTotals(detail,'PUR.pdf');
+ assert(rh.totals.RHD?.hours===2200&&rh.totals.RHD.people===2&&rh.totals.RHI?.hours===1100&&rh.totals.RHI.people===2&&!rh.notices.length,'detalhamento: horas PARA de RHD e RHI, com DE antes do título');
+ const broken=rhTotals([detail[0].map(l=>l.text==='TOTAL 61.000,00'?L('TOTAL 99.999,99'):l)],'PUR.pdf');
+ assert(broken.totals.RHD&&!broken.totals.RHI&&/RHI/.test(broken.notices[0]),'detalhamento que não fecha com o total fica pendente');
+ const ocrLost=rhTotals([detail[0].map(l=>l.text==='2 Auxiliar Administrativo 400 30,00 12.000,00'?L('2 Auxiliar Administrativo 400 R$ 30,00'):l)],'PUR.pdf');
+ assert(ocrLost.totals.RHI?.hours===1100&&/sem valor lido/.test(ocrLost.notices[0]),'linha sem valor no OCR é deduzida do total, com aviso');
+ const ocrWrong=rhTotals([detail[0].map(l=>l.text==='2 Auxiliar Administrativo 400 30,00 12.000,00'?L('2 Auxiliar Administrativo 400 R$ 20,00'):l)],'PUR.pdf');
+ assert(!ocrWrong.totals.RHI,'linha sem valor que não explica o total fica pendente');
+ const viaPdf=extract(fin,plan,{project:'x',start,duration:12,closed:1,pdf:{values:{},sources:{},notices:[],rhTotals:rh.totals}});
+ assert(viaPdf.values.RHD[15][0]===183.33&&viaPdf.values.RHD[10].every(v=>v===2)&&viaPdf.values.RHI[15][11]===91.74&&/detalhamento/.test(viaPdf.sources.RHD[15][0]),'média do detalhamento preenche horas e profissionais previstos');
  assert(durationFromText('Prazo de execução: 15 (quinze) meses')===15&&durationFromText('A duração do projeto é de 12 meses')===12&&durationFromText('Mês 1 Mês 2')===null&&durationFromText('prazo de 30 dias')===null,'duração lida do texto do PUR');
  const auto=parsePur(pages,{start,file:'PUR_sintetico.pdf'});assert(auto.duration===12&&auto.values.Equipamentos[2].length===12,'duração deduzida do cronograma quando o texto não informa');
  const withText=parsePur([[...pages[0],{y:0,cells:[{x0:0,x1:10,xc:5,text:'Prazo de execução: 9 meses'}],text:'Prazo de execução: 9 meses'}],pages[1]],{start,file:'x.pdf'});assert(withText.duration===9&&withText.values.RHD[15].length===9,'duração do texto prevalece e corta os meses excedentes');
