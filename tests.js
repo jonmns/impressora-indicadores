@@ -87,6 +87,8 @@ try{
  const lido=(linhas,totais)=>({values:Object.fromEntries(categories.map(c=>[c,{2:[...(linhas[c]||[0,0])]}])),sources:Object.fromEntries(categories.map(c=>[c,{2:(linhas[c]||[0,0]).map(()=>'scan.pdf, p. 1')}])),totals:totais,notices:[],duration:(linhas.RHD||[0,0]).length});
  const totalErrado=lido({RHD:[100,200]},{RHD:3000});reviewOcr(totalErrado,'scan.pdf',1);
  assert(totalErrado.values.RHD[2].join()==='100,200'&&totalErrado.notices.some(n=>n.includes('RHD')&&n.includes('dígito do total')),'OCR: total lido com dígito errado gera aviso e mantém os meses');
+ const vazias=lido({RHD:[100,null,200],STT:[null,50,null]},{RHD:300,STT:50});reviewOcr(vazias,'scan.pdf',1);const avisoVazias=vazias.notices.find(n=>n.includes('sem leitura'))||'';
+ assert(vazias.values.RHD[2][1]===0&&vazias.values.STT[2].join()==='0,50,0'&&avisoVazias.includes('3 células')&&avisoVazias.includes('RHD (mês 2)')&&avisoVazias.includes('STT (meses 1, 3)'),'OCR: células sem leitura viram zero com aviso geral de quantas e onde');
  const info=financialInfo(fin);assert(info.project==='Projeto sintético'&&info.start===month(46266)&&info.lastClosed===month(46266),'financeiro: projeto, início e última competência realizada');
  assert(durationFromText('Prazo de execução: 15 (quinze) meses')===15&&durationFromText('A duração do projeto é de 12 meses')===12&&durationFromText('Mês 1 Mês 2')===null&&durationFromText('prazo de 30 dias')===null,'duração lida do texto do PUR');
  const auto=parsePur(pages,{start,file:'PUR_sintetico.pdf'});assert(auto.duration===12&&auto.values.Equipamentos[2].length===12,'duração deduzida do cronograma quando o texto não informa');
