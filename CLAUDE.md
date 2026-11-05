@@ -86,14 +86,14 @@ Itens 4 a 8 resolvidos (avisos de `reviewOcr`, conferência pelo Sub-Total, vari
 
 ### Experiência
 
-9. Não há botão para cancelar o OCR. Recarregar a página é o único jeito de parar.
-10. Só o núcleo Tesseract SIMD está em `vendor/`. O comportamento em navegador sem SIMD não foi testado.
-11. Cronometrar o documento longo na versão atual com a janela em segundo plano. Com a janela visível, levava de 4 a 7 minutos antes da última mudança.
+9. ~~Cancelar o OCR~~ Feito: botão "Cancelar leitura" (`AbortController` de `app.js` até `ocrPages`, que encerra os workers e o pdf.js; cancelou em cerca de 1,7 s no teste e permite nova extração).
+10. ~~Navegador sem SIMD~~ Feito: sem SIMD o núcleo não carrega, então `ocrPages` checa `hasSimd()` e mostra mensagem clara (atualizar o navegador ou usar PDF com texto). Testado simulando `WebAssembly.validate` falso; não há núcleo não SIMD em `vendor/`.
+11. **Adiado**: cronometrar o documento longo, com a janela visível e em segundo plano, uma única vez depois de juntar os branches de OCR. Antes, com a janela visível, levava de 4 a 7 minutos.
 
 ### Manutenção
 
 12. Versionar `dev/` e criar testes de OCR. Avaliar CI.
 13. Citar `pur-ocr.js` na seção Arquitetura do `README.md`.
-14. Avaliar remover `LEIA-ME-ANTES-DE-ENVIAR.txt`, que descreve uma atualização antiga por upload.
+14. ~~Remover `LEIA-ME-ANTES-DE-ENVIAR.txt`~~ Resolvido: arquivo removido e as observações úteis foram para o `README.md`.
 15. `rotatedPages` parece redundante agora que o OCR cobre páginas giradas. Confirmar antes de remover.
 16. Para PDF de texto, avisar quando a soma dos meses de uma rubrica difere do total do quadro (hoje `reconcile` só roda com OCR).

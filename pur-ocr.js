@@ -222,22 +222,33 @@ const monthly=lines=>lines.some(l=>(l.text.length<40&&/cronograma/.test(norm(l.t
 
 const memory=new Map();
 /* Lê as páginas indicadas e devolve {índice: linhas}. O resultado fica em memória até recarregar a página. */
-export async function ocrPages(file,buffer,indices,onProgress=()=>{}){
+export class OcrCancelled extends Error{constructor(){super('Leitura cancelada.');this.name='AbortError';}}
+/* WebAssembly SIMD: o núcleo do Tesseract em vendor/ exige. Sem isso o worker falha de modo obscuro. */
+export const hasSimd=()=>typeof WebAssembly==='object'&&WebAssembly.validate(new Uint8Array([0,97,115,109,1,0,0,0,1,5,1,96,0,1,123,3,2,1,0,10,10,1,8,0,65,0,253,15,253,98,11]));
+export async function ocrPages(file,buffer,indices,onProgress=()=>{},signal){
+ const stop=()=>{if(signal?.aborted)throw new OcrCancelled();};stop();
+ // Worker encerrado à força nunca responde: a espera pelo trabalho em curso é interrompida pelo sinal.
+ const cancelled=new Promise((_,no)=>signal?.addEventListener('abort',()=>no(new OcrCancelled()),{once:true}));cancelled.catch(()=>{});
+ const until=p=>Promise.race([p,cancelled]);
+ if(!hasSimd())throw Error('Este navegador não tem WebAssembly SIMD, que o OCR local exige. Atualize o navegador (Chrome, Edge ou Firefox recentes) ou use o PUR em PDF com texto selecionável.');
  const key=[file.name,file.size,file.lastModified].join('|');if(memory.has(key))return memory.get(key);
  const [{default:Tesseract},lib]=await Promise.all([import('./vendor/tesseract.esm.min.js'),import('./vendor/pdf.min.mjs')]);
  lib.GlobalWorkerOptions.workerSrc=new URL('./vendor/pdf.worker.min.mjs',import.meta.url).href;
  const doc=await lib.getDocument({data:new Uint8Array(buffer).slice(),isEvalSupported:false,enableXfa:false,verbosity:0}).promise;
  const size=Math.min(6,Math.max(1,(navigator.hardwareConcurrency||2)-1)),workers=[];
  try{
+  const kill=()=>{workers.forEach(w=>w.terminate().catch(()=>{}));doc.destroy().catch(()=>{});};
+  signal?.addEventListener('abort',kill,{once:true});
   onProgress('Preparando o OCR local…');
-  for(let i=0;i<size;i++)workers.push(await Tesseract.createWorker('por',1,{workerPath:BASE+'worker.min.js',corePath:BASE+'tesseract-core-simd-lstm.wasm.js',langPath:BASE.replace(/\/$/,''),gzip:true,cacheMethod:'none',workerBlobURL:false}));
+  for(let i=0;i<size;i++){stop();workers.push(await until(Tesseract.createWorker('por',1,{workerPath:BASE+'worker.min.js',corePath:BASE+'tesseract-core-simd-lstm.wasm.js',langPath:BASE.replace(/\/$/,''),gzip:true,cacheMethod:'none',workerBlobURL:false})));}
+  stop();
   const lines={},rotations={};
-  const run=async(list,job)=>{let next=0,done=0;await Promise.all(workers.map(async w=>{while(next<list.length){const i=list[next++];await job(w,i);done++;onProgress(done,list.length);}}));};
+  const run=async(list,job)=>{let next=0,done=0;await Promise.all(workers.map(async w=>{while(next<list.length){stop();const i=list[next++];await until(job(w,i));stop();done++;onProgress(done,list.length);}}));};
   await run(indices,async(w,i)=>{const page=await doc.getPage(i+1),r=await fastPass(w,page);rotations[i]=r.rotation;lines[i]=wordsToLines(r.words,FAST,r.height);page.cleanup();});
   const tables=indices.filter(i=>monthly(lines[i]));
   onProgress('Relendo os quadros mensais em alta resolução…');
   await run(tables,async(w,i)=>{const page=await doc.getPage(i+1),canvas=clean(await render(page,FINE,rotations[i]),FINE),words=await read(w,canvas,6);lines[i]=wordsToLines(words,FINE,canvas.height);await fillGaps(w,canvas,lines[i],FINE);
    const small=clean(await render(page,FAST,rotations[i]),FAST);lines[i]=addTitles(lines[i],wordsToLines(await read(w,small,11),FAST,small.height));page.cleanup();});
-  const result={lines,tables,rotations,pages:indices.length};memory.set(key,result);return result;
- }finally{await Promise.allSettled(workers.map(w=>w.terminate()));await doc.destroy();}
+  stop();const result={lines,tables,rotations,pages:indices.length};memory.set(key,result);return result;
+ }catch(e){if(signal?.aborted)throw new OcrCancelled();throw e;}finally{await Promise.allSettled(workers.map(w=>w.terminate()));await doc.destroy().catch(()=>{});}
 }

@@ -134,7 +134,7 @@ export async function readPurPdf(file,options={}){
  if(!durationFromHeaders(pages)||!parsePur(pages,{start:options.start,file:file.name}).moneyMonths){
   const blank=textlessPages(pages);
   if(blank.length){
-   ocr=await ocrPages(file,buffer,blank,(a,b)=>options.onProgress?.(b?`Lendo o PDF digitalizado (OCR): página ${a} de ${b}…`:a));
+   ocr=await ocrPages(file,buffer,blank,(a,b)=>options.onProgress?.(b?`Lendo o PDF digitalizado (OCR): página ${a} de ${b}…`:a),options.signal);
    pages=pages.map((lines,i)=>ocr.lines[i]||lines);
   }
  }
