@@ -86,7 +86,8 @@ function columnOf(header,cell){
 }
 
 // Sem espaços: alguns PDFs separam letras ("Sub-T otal", "T otal Projeto").
-const isTotal=s=>/^(sub-?)?total/.test(norm(s).replace(/\s+/g,''));
+// Até quatro caracteres que não são letras antes (lixo do OCR na margem, como "8 Sub-Total").
+const isTotal=s=>/^[^a-z]{0,4}(sub-?)?total/.test(norm(s).replace(/\s+/g,''));
 /* Rubricas do PUR que não vão para o relatório, mas entram no Sub-Total do quadro. */
 const OTHERS=[['Livros',/livro|periodico/],['Viagens',/viage/],['Treinamento',/treinamento/]];
 const otherOf=s=>{const t=norm(s);return OTHERS.find(([,r])=>r.test(t))?.[0]||null;};

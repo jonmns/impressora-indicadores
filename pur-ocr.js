@@ -15,7 +15,7 @@ export function textlessPages(pages,minChars=40){
 
 /* Corrige um número lido por OCR. Valores com centavos têm sempre dois dígitos no fim; o separador pode vir trocado ou sumir. */
 export function repairNumber(text){
- let t=String(text).replace(/[|[\]{}!]/g,'').trim();
+ let t=String(text).replace(/[|[\]{}!"“”‘’'«»]/g,'').trim();
  if(/^[-–—~_=.:;]{1,3}$/.test(t))return '-';
  if(/^\d{1,2}\/\d{2,4}$/.test(t)||!/^[-–—~_.,:;\s]*\d[\d.,/OoIlSB\s]*[-–—~_.,:;]*$/.test(t))return t;
  t=t.replace(/^[-–—~_.,:;\s]+/,'').replace(/[-–—~_.,:;\s]+$/,'').replace(/([.,])\//g,'$17').replace(/\/([.,])/g,'7$1').replace(/\/(\d{2})$/,',$1').replace(/\//g,'7');

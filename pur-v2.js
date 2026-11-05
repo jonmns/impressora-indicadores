@@ -81,23 +81,22 @@ export function checkSubtotals(result,ocr=false){
  return {checked,ok:checked-bad.length,bad:bad.length};
 }
 
-/* Termo Aditivo sem DE/PARA só vale como plano vigente se o quadro fechar: toda rubrica lida tem total e a soma dos meses bate,
- * e o Sub-Total confere em pelo menos um mês, sem nenhum mês divergente. Tolerância de meio centavo por célula. */
-export function consolidatedOk(result,subs,ocr=false){return !consolidatedProblem(result,subs,ocr);}
-/* Motivo para não aceitar o Termo Aditivo como plano, ou '' quando fecha.
- * Com OCR, diferença de até R$ 0,10 entre a soma e o total é aceita com aviso (decisão do usuário). */
-export function consolidatedProblem(result,subs,ocr=false){
- const near=[];
- const cats=Object.keys(result.values).filter(c=>result.values[c][2].some(v=>v!==null));
- if(!cats.length)return 'nenhuma rubrica lida no quadro financeiro';
- for(const c of cats){const a=result.values[c][2],t=result.totals[c];
-  if(t===undefined||t===null)return `sem total lido para ${c}`;
-  if(a.some(v=>v===null))return `${c} com meses sem leitura`;
-  const sum=a.reduce((s,v)=>s+v,0),gap=Math.abs(sum-t);if(gap<=.005*a.filter(Boolean).length+.005)continue;
-  if(ocr&&gap<=.1){near.push(`${c} (soma ${brl(sum)}, total ${brl(t)})`);continue;}
-  return `${c}: soma dos meses ${brl(sum)} diferente do total ${brl(t)}`;}
- if(!subs.checked)return 'Sub-Total do quadro não conferido em nenhum mês';
- if(subs.bad)return `Sub-Total diverge em ${subs.bad} ${subs.bad===1?'mês':'meses'}`;
+/* Termo Aditivo sem DE/PARA lido como plano completo (decisão do usuário).
+ * Rubrica que fecha com o total fica como lida. Com OCR, diferença de até R$ 0,10 passa com aviso.
+ * Rubrica sem total, que não fecha ou com mês sem leitura fica pendente inteira: os valores lidos vão para a fonte da célula, para conferência manual.
+ * Devolve o motivo para bloquear (menos de três rubricas que fecham), ou ''. Função pura, testável sem PDF. */
+export function consolidatedReview(result,ocr=false){
+ const closed=[],near=[],open=[];
+ for(const c of Object.keys(result.values)){const a=result.values[c][2],src=result.sources[c][2],t=result.totals[c];
+  if(!a.some(v=>v!==null))continue;
+  const sum=a.reduce((s,v)=>s+(v||0),0),gap=t===undefined||t===null?Infinity:Math.abs(sum-t),full=!a.some(v=>v===null);
+  if(full&&gap<=.005*a.filter(Boolean).length+.005){closed.push(c);continue;}
+  if(full&&ocr&&gap<=.1){closed.push(c);near.push(`${c} (soma ${brl(sum)}, total ${brl(t)})`);continue;}
+  const why=!full?'há mês sem leitura':gap===Infinity?'sem total lido':`soma ${brl(sum)} diferente do total ${brl(t)}`;
+  a.forEach((v,m)=>{src[m]=`${src[m]||''}${src[m]?'; ':''}${v===null?'sem leitura':`valor lido ${brl(v)} não confirmado`} (${why}). Preencha conferindo o PDF.`;a[m]=null;});
+  open.push(`${c} (${why})`);}
+ if(closed.length<3)return closed.length?`só ${closed.length} ${closed.length===1?'rubrica fecha':'rubricas fecham'} com o total`:'nenhuma rubrica fecha com o total';
+ if(open.length)result.notices.unshift(`Termo Aditivo: ${open.length===1?'a rubrica':'as rubricas'} ${open.join('; ')} ${open.length===1?'ficou pendente':'ficaram pendentes'}. Os valores lidos estão na fonte de cada célula; preencha conferindo o PDF.`);
  if(near.length)result.notices.unshift(`Termo Aditivo digitalizado aceito com diferença de centavos entre a soma dos meses e o total: ${near.join('; ')}. Confira esses valores no PDF.`);
  return '';
 }
@@ -143,7 +142,7 @@ export async function readPurPdf(file,options={}){
  const selected=filterCurrent(pages,adendo);
  if(adendo&&selected.hasDe&&!selected.hasPara)throw Error('Adendo com quadro DE, mas sem quadro PARA identificável. Não é seguro extrair valores antigos. Confira o PDF.');
  if(adendo&&!selected.filtered && selected.hasPara)throw Error('Não foi possível isolar com segurança o quadro PARA do adendo. Confira a estrutura do PDF.');
- // Termo Aditivo sem nenhum quadro DE/PARA: pode trazer o plano completo. Só é aceito se o quadro fechar (ver consolidatedOk).
+ // Termo Aditivo sem nenhum quadro DE/PARA: pode trazer o plano completo. Regras em consolidatedReview.
  const consolidated=adendo&&!selected.hasDe&&!selected.hasPara;
  const noPara=()=>Error('Este documento parece ser um adendo, mas não identifiquei claramente o quadro PARA. Para evitar valores desatualizados, use um PDF com texto selecionável e estrutura DE/PARA legível.');
  if(adendo&&!selected.hasPara&&!consolidated)throw noPara();
@@ -165,9 +164,12 @@ export async function readPurPdf(file,options={}){
   for(const a of [result.subtotals,...Object.values(result.others)]){while(a.length<chosen)a.push(null);a.length=chosen;}
  }
  if(ocr)reviewOcr(result,file.name,ocr.pages);
+ const blocked=why=>Object.assign(Error(`Termo Aditivo sem quadros DE/PARA: o quadro financeiro não fecha (${why}), então não é seguro lê-lo como plano completo. Confira o PDF.`),{result});
+ if(consolidated){const why=consolidatedReview(result,!!ocr);if(why)throw blocked(why);}
  const subs=checkSubtotals(result,!!ocr);
  if(ocr&&subs.checked)result.notices.unshift(`OCR: Sub-Total do quadro confere em ${subs.ok} de ${subs.checked} meses.`);
- if(consolidated){const why=consolidatedProblem(result,subs,!!ocr);if(why)throw Error(`Termo Aditivo sem quadros DE/PARA: o quadro financeiro não fecha (${why}), então não é seguro lê-lo como plano completo. Confira o PDF.`);const cents=result.notices.some(n=>n.includes('diferença de centavos'));result.notices.unshift('Plano lido de Termo Aditivo sem DE/PARA: confira com o documento. '+(cents?'As rubricas fecham com o Sub-Total; há diferença de centavos em rubrica, avisada abaixo.':'As rubricas fecham com os totais do quadro e com o Sub-Total.'));}
+ if(consolidated){if(subs.bad)throw blocked(`Sub-Total diverge em ${subs.bad} ${subs.bad===1?'mês':'meses'}`);
+  result.notices.unshift('Plano lido de Termo Aditivo sem DE/PARA: confira com o documento. '+(subs.checked?`O Sub-Total confere em ${subs.checked} ${subs.checked===1?'mês':'meses'}.`:'O Sub-Total não pôde ser conferido; só as rubricas foram conferidas com os totais.'));}
  if(selected.filtered)result.notices.unshift('Adendo: leitura limitada aos trechos identificados como PARA. Confira se as demais rubricas não alteradas estão completas; um adendo parcial pode exigir o PUR consolidado.');
  if(adendo&&!selected.hasDe)result.notices.unshift('Adendo: foi encontrado PARA sem DE. Verifique a integridade do documento.');
  result.text=full;

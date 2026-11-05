@@ -1,6 +1,6 @@
 import {categories,NS,openWorkbook,extract,exportWorkbook,missing,calculated,number,month,financialInfo,durationFromText} from './engine.js';
 import {pdfPages,parsePur,pdfNumber} from './pur-pdf.js';
-import {readPurPdf,reviewOcr,checkSubtotals,marker,consolidatedOk} from './pur-v2.js';
+import {readPurPdf,reviewOcr,checkSubtotals,marker,consolidatedReview} from './pur-v2.js';
 import {textlessPages,repairNumber,repairHeader,wordsToLines,reconcile,valueColumns,addTitles,fillGaps,clean,skewAngle} from './pur-ocr.js';
 /* PDF mínimo com texto posicionado (Helvetica), para testar a leitura real pelo pdf.js sem documentos privados. */
 function makePdf(pages){
@@ -72,7 +72,7 @@ try{
  const gantt=Array.from({length:8},(_,i)=>({x:200+i*50,y:540,text:'Mês '+(i+1)})),fisico=makePdf([[{x:30,y:540,text:'Macro atividade'},...gantt],[{x:30,y:540,text:'Rubrica'},...gantt.slice(0,6),{x:30,y:525,text:'V - Materiais de consumo'},...gantt.slice(0,6).map(g=>({x:g.x,y:525,text:'7,50'}))]]);
  const longo=await readPurPdf(new File([fisico],'PUR_fisico.pdf',{type:'application/pdf'}),{start:month('2026-09')});assert(longo.duration===6&&longo.notices.some(n=>n.includes('quadro financeiro')),'PDF: duração vem do quadro financeiro');
  assert(repairNumber('75.367.96')==='75367,96'&&repairNumber('75,367,96')==='75367,96'&&repairNumber('3 7l0,16')==='3710,16'&&repairNumber('—')==='-'&&repairNumber('160')==='160'&&repairNumber('Total')==='Total','OCR: números corrigidos');
- assert(repairNumber('1613148')==='16131,48'&&repairNumber('8632/75')==='8632,75'&&repairNumber('31.497,/6')==='31497,76'&&repairNumber('—.75.36/,96')==='75367,96'&&repairNumber('01/2026')==='01/2026'&&repairNumber('consumo;')==='consumo;','OCR: separador perdido e ruído');
+ assert(repairNumber('1613148')==='16131,48'&&repairNumber('8632/75')==='8632,75'&&repairNumber('31.497,/6')==='31497,76'&&repairNumber('—.75.36/,96')==='75367,96'&&repairNumber('01/2026')==='01/2026'&&repairNumber('consumo;')==='consumo;'&&repairNumber('“1005180')==='10051,80','OCR: separador perdido e ruído');
  const rec=reconcile([100,795367.96,50],75517.96);assert(rec.ok&&rec.fixed.m===1&&rec.fixed.want===75367.96,'OCR: dígito a mais corrigido pela soma');assert(reconcile([100,200],300).ok&&!reconcile([100,200],900).ok,'OCR: soma confere ou avisa');assert(reconcile(Array(15).fill(3710.16),55652.43).ok&&!reconcile(Array(15).fill(3710.16),55652.43).fixed,'OCR: centavos de arredondamento não são erro');const round=reconcile([47476.4,795367.96,68690.24],191534.62);assert(round.ok&&round.fixed.m===1&&round.fixed.want===75367.96,'OCR: dígito a mais com arredondamento');
  assert(wordsToLines([{text:'3.839,16',x0:100,y0:100,x1:140,y1:110},{text:'3.720,16',x0:141,y0:100,x1:180,y1:110}],1,800)[0].cells.length===2,'OCR: números vizinhos não se juntam');
  const headCells=[['Rubrica',10],['Mês O1',100],['Més 02',140],['Mês 08',180],['Mês',220],['04',235],['Mês 05',260],['Mês 07',300],['TOTAL',340]].map(([text,x])=>({text,x0:x,x1:x+(text.length>3?28:10),xc:x+14}));
@@ -93,7 +93,7 @@ try{
  const linha=(y,label,vals)=>[{x:30,y,text:label},...vals.map((v,i)=>({x:200+i*60,y,text:v}))];
  const sete=['I - Programas de computador','II - Laboratório','III a - Recursos humanos diretos','III b - Recursos humanos indiretos','V - Materiais de consumo','VIII - Serviços técnicos de terceiros','IX - Outros correlatos'];
  const quadro=[...linha(540,'Rubricas',['Mês 1','Mês 2','Mês 3','Mês 4','TOTAL']),...sete.flatMap((l,i)=>linha(525-i*15,l,['100,00','100,00','100,00','100,00','400,00'])),
-  ...linha(420,'VI - Viagens',['50,00','-','-','-','50,00']),...linha(405,'VII - Treinamento',['-','-','25,00','-','25,00']),...linha(390,'Sub-T otal',['750,00','700,00','725,00','790,00','2.965,00'])];
+  ...linha(420,'VI - Viagens',['50,00','-','-','-','50,00']),...linha(405,'VII - Treinamento',['-','-','25,00','-','25,00']),...linha(390,'8 Sub-T otal',['750,00','700,00','725,00','790,00','2.965,00'])];
  const sub=parsePur(await pdfPages(makePdf([quadro])),{duration:4,start,file:'sub.pdf'});
  assert(sub.subtotals.join()==='750,700,725,790'&&sub.others.Viagens.join()==='50,0,0,0'&&sub.others.Treinamento[2]===25&&sub.otherTotals.Viagens===50,'PDF: Sub-Total e rubricas fora do relatório lidos por mês');
  const conf=checkSubtotals(sub);const avisoSub=sub.notices.find(n=>n.includes('Sub-Total'))||'';
@@ -108,11 +108,15 @@ try{
  const solto=makePdf([[{x:30,y:560,text:'Termo Aditivo ao convenio.'},...linha(540,'Rubricas',['Mês 1','Mês 2','Mês 3','Mês 4','TOTAL']),...sete.map((l,i)=>linha(525-i*15,l,['100,00','100,00','100,00','100,00','400,00'])).flat(),...linha(405,'Sub-Total',['700,00','700,00','700,00','700,00','2.800,00'])],
   [{x:30,y:500,text:'Equipe tecnica'},{x:30,y:480,text:'DE'},{x:30,y:460,text:'Engenheiro de software'}]]);
  const lidoSolto=await readPurPdf(new File([solto],'aditivo.pdf',{type:'application/pdf'}),{start});assert(lidoSolto.duration===4&&lidoSolto.notices.some(n=>n.startsWith('Plano lido de Termo Aditivo')),'DE solto, sem quadro de meses depois, não bloqueia o aditivo');
- {const r=(v,t)=>({values:Object.fromEntries(categories.map(c=>[c,{2:c==='RHD'?v:[1,1]}])),totals:Object.fromEntries(categories.map(c=>[c,c==='RHD'?t:2])),notices:[]});
-  const ok=r([100,200.06],300);assert(consolidatedOk(ok,{checked:2,bad:0},true)&&ok.notices.some(n=>n.includes('diferença de centavos')&&n.includes('RHD')),'aditivo digitalizado: diferença de centavos aceita com aviso');
-  assert(!consolidatedOk(r([100,200.06],300),{checked:2,bad:0},false)&&!consolidatedOk(r([100,200.5],300),{checked:2,bad:0},true),'diferença de centavos só com OCR, e até R$ 0,10');}
- let barrado='';try{await readPurPdf(new File([aditivo('190,00','790,00')],'aditivo.pdf',{type:'application/pdf'}),{start});}catch(e){barrado=e.message;}
- assert(barrado.includes('não fecha')&&barrado.includes('Correlatos'),'aditivo sem DE/PARA cuja linha não fecha com o total continua bloqueado');
+ {const r=(v,t)=>({values:Object.fromEntries(categories.map(c=>[c,{2:c==='RHD'?[...v]:[1,1]}])),sources:Object.fromEntries(categories.map(c=>[c,{2:['p. 1','p. 1']}])),totals:Object.fromEntries(categories.map(c=>[c,c==='RHD'?t:2])),notices:[]});
+  const ok=r([100,200.06],300);assert(consolidatedReview(ok,true)===''&&ok.values.RHD[2][1]===200.06&&ok.notices.some(n=>n.includes('diferença de centavos')&&n.includes('RHD')),'aditivo digitalizado: diferença de centavos aceita com aviso');
+  const ruim=r([100,250],300);assert(consolidatedReview(ruim,true)===''&&ruim.values.RHD[2].every(v=>v===null)&&ruim.sources.RHD[2][1].includes('250,00 não confirmado')&&ruim.notices.some(n=>n.includes('RHD')&&n.includes('pendente')),'aditivo: rubrica que não fecha fica pendente, com o valor lido na fonte');
+  const furo=r([100,null],300);consolidatedReview(furo,true);assert(furo.values.RHD[2].every(v=>v===null),'aditivo: rubrica com mês sem leitura fica pendente');
+  const sem=r([100,200],300);for(const c of categories)if(c!=='RHD')sem.totals[c]=99;assert(consolidatedReview(sem,true).includes('rubrica fecha'),'aditivo: menos de três rubricas que fecham continua bloqueado');}
+ const pendente=await readPurPdf(new File([aditivo('190,00','790,00')],'aditivo.pdf',{type:'application/pdf'}),{start});
+ assert(pendente.values.Correlatos[2].every(v=>v===null)&&pendente.values.RHD[2][3]===100&&pendente.notices.some(n=>n.includes('Correlatos')&&n.includes('pendente')),'aditivo: rubrica que não fecha fica pendente e o resto é lido');
+ let barrado='';try{await readPurPdf(new File([aditivo('100,00','790,00')],'aditivo.pdf',{type:'application/pdf'}),{start});}catch(e){barrado=e.message;}
+ assert(barrado.includes('Sub-Total diverge'),'aditivo sem DE/PARA com Sub-Total divergente continua bloqueado');
  {const dupPos=sheet('Posição Financeira',{...posCells,O7:46267}),dupFin={sheets:{...fin.sheets,pos:dupPos}};
   const ok=extract(dupFin,null,{project:'Sintético',start,duration:2,closed:1});assert(ok.notices.some(n=>n.includes('coluna O repete')),'planilha: data repetida depois do fim do projeto é ignorada com aviso');
   let dup='';try{extract(dupFin,null,{project:'Sintético',start,duration:3,closed:1});}catch(e){dup=e.message;}assert(dup.includes('Competência duplicada'),'planilha: competência duplicada dentro do projeto continua bloqueando');}
