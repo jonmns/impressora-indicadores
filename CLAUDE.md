@@ -18,7 +18,7 @@ Repositório: https://github.com/jonmns/impressora-indicadores
 
 Sirva a pasta com `python -m http.server 8931`. Não abra `index.html` por `file://`.
 
-- `tests.html`: testes no navegador (70 verificações). Inclui OCR real com o Tesseract de `vendor/`: um quadro desenhado em canvas, com células apagadas da leitura para exercitar `fillGaps`.
+- `tests.html`: testes no navegador (72 verificações). Inclui OCR real com o Tesseract de `vendor/`: um quadro desenhado em canvas, com células apagadas da leitura para exercitar `fillGaps`.
 - `dev/run-tests.js` ou `dev/run_tests.py`: rodam `tests.html` no Chromium via Playwright. Uso: `python dev/run_tests.py http://127.0.0.1:8931`.
 - `dev/make_fixtures.py` e `dev/make_scan.py`: geram PDFs e planilha sintéticos. Dependências: pillow, playwright, reportlab, openpyxl.
 - `dev/run.js` ou `dev/run.py`: fluxo completo com PDFs de texto.
@@ -80,7 +80,7 @@ Itens 4 a 8 resolvidos (avisos de `reviewOcr`, conferência pelo Sub-Total, vari
 
 4. Digitalização ruim ainda lê pouco (`PUR_scan_ruim.pdf`: 16 corretos de 70). Os errados têm aviso, mas o resultado não serve. Caminhos: binarização adaptativa por região, OCR com dígitos maiores na passada fina, ou pedir ao usuário um PDF melhor quando o Sub-Total não fecha.
 5. Testar com mais PUR e adendos reais digitalizados. Só um adendo real passou pelo OCR.
-7. **Termo Aditivo sem DE/PARA (decidido: ler como PUR completo).** Lido como plano vigente só se o quadro fechar: cada rubrica com total e sem mês sem leitura, soma dos meses igual ao total, e Sub-Total conferido em pelo menos um mês sem divergência (`consolidatedProblem`). Sempre com o aviso "Plano lido de Termo Aditivo sem DE/PARA". Se não fechar, o bloqueio diz o motivo. Na rodada com os PUR reais, cinco passaram a ser lidos; os digitalizados continuam bloqueados porque o OCR deixa diferenças de centavos ou meses sem leitura. Avaliar se uma diferença de poucos centavos com aviso pode ser aceita.
+7. **Termo Aditivo sem DE/PARA (decidido: ler como PUR completo).** Lido como plano vigente só se o quadro fechar: cada rubrica com total e sem mês sem leitura, soma dos meses igual ao total, e Sub-Total conferido em pelo menos um mês sem divergência (`consolidatedProblem`). Sempre com o aviso "Plano lido de Termo Aditivo sem DE/PARA". Se não fechar, o bloqueio diz o motivo. Na rodada com os PUR reais, cinco passaram a ser lidos, mais um digitalizado com diferença de centavos; os demais digitalizados continuam bloqueados por meses sem leitura ou total lido errado. Com OCR, diferença de até R$ 0,10 entre a soma e o total de uma rubrica é aceita com aviso (decisão do usuário).
 6. `valueColumns` aceita como coluna de valores os traços dos rótulos ("I - uso..."), e `fillGaps` relê essa coluna à toa. Não erra, só gasta tempo.
 
 ### Experiência

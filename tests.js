@@ -1,6 +1,6 @@
 import {categories,NS,openWorkbook,extract,exportWorkbook,missing,calculated,number,month,financialInfo,durationFromText} from './engine.js';
 import {pdfPages,parsePur,pdfNumber} from './pur-pdf.js';
-import {readPurPdf,reviewOcr,checkSubtotals,marker} from './pur-v2.js';
+import {readPurPdf,reviewOcr,checkSubtotals,marker,consolidatedOk} from './pur-v2.js';
 import {textlessPages,repairNumber,repairHeader,wordsToLines,reconcile,valueColumns,addTitles,fillGaps,clean,skewAngle} from './pur-ocr.js';
 /* PDF mínimo com texto posicionado (Helvetica), para testar a leitura real pelo pdf.js sem documentos privados. */
 function makePdf(pages){
@@ -108,6 +108,9 @@ try{
  const solto=makePdf([[{x:30,y:560,text:'Termo Aditivo ao convenio.'},...linha(540,'Rubricas',['Mês 1','Mês 2','Mês 3','Mês 4','TOTAL']),...sete.map((l,i)=>linha(525-i*15,l,['100,00','100,00','100,00','100,00','400,00'])).flat(),...linha(405,'Sub-Total',['700,00','700,00','700,00','700,00','2.800,00'])],
   [{x:30,y:500,text:'Equipe tecnica'},{x:30,y:480,text:'DE'},{x:30,y:460,text:'Engenheiro de software'}]]);
  const lidoSolto=await readPurPdf(new File([solto],'aditivo.pdf',{type:'application/pdf'}),{start});assert(lidoSolto.duration===4&&lidoSolto.notices.some(n=>n.startsWith('Plano lido de Termo Aditivo')),'DE solto, sem quadro de meses depois, não bloqueia o aditivo');
+ {const r=(v,t)=>({values:Object.fromEntries(categories.map(c=>[c,{2:c==='RHD'?v:[1,1]}])),totals:Object.fromEntries(categories.map(c=>[c,c==='RHD'?t:2])),notices:[]});
+  const ok=r([100,200.06],300);assert(consolidatedOk(ok,{checked:2,bad:0},true)&&ok.notices.some(n=>n.includes('diferença de centavos')&&n.includes('RHD')),'aditivo digitalizado: diferença de centavos aceita com aviso');
+  assert(!consolidatedOk(r([100,200.06],300),{checked:2,bad:0},false)&&!consolidatedOk(r([100,200.5],300),{checked:2,bad:0},true),'diferença de centavos só com OCR, e até R$ 0,10');}
  let barrado='';try{await readPurPdf(new File([aditivo('190,00','790,00')],'aditivo.pdf',{type:'application/pdf'}),{start});}catch(e){barrado=e.message;}
  assert(barrado.includes('não fecha')&&barrado.includes('Correlatos'),'aditivo sem DE/PARA cuja linha não fecha com o total continua bloqueado');
  const info=financialInfo(fin);assert(info.project==='Projeto sintético'&&info.start===month(46266)&&info.lastClosed===month(46266),'financeiro: projeto, início e última competência realizada');
