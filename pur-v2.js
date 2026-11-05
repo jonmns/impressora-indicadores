@@ -130,13 +130,14 @@ export async function readPurPdf(file,options={}){
   const rotated=await rotatedPages(buffer);
   if(durationFromHeaders(rotated))pages=pages.map((original,i)=>[...original,...rotated[i]]);
  }
- let ocr=null;
+ let ocr=null;const extraNotices=[];
  // Cabeçalho de meses no texto não basta: o cronograma físico pode ter texto e o quadro financeiro ser imagem.
  if(!durationFromHeaders(pages)||!parsePur(pages,{start:options.start,file:file.name}).moneyMonths){
   const blank=textlessPages(pages);
   if(blank.length){
    ocr=await ocrPages(file,buffer,blank,(a,b)=>options.onProgress?.(b?`Lendo o PDF digitalizado (OCR): página ${a} de ${b}…`:a),options.signal);
    pages=pages.map((lines,i)=>ocr.lines[i]||lines);
+   if(ocr.skipped?.length)extraNotices.push(`OCR: ${ocr.skipped.length} ${ocr.skipped.length===1?'página sem tabela foi pulada':'páginas sem tabela foram puladas'} (p. ${ocr.skipped.join(', ')}).`);
   }
  }
  const full=pages.flatMap(p=>p.map(l=>l.text)).join('\n');
@@ -174,7 +175,14 @@ export async function readPurPdf(file,options={}){
   result.notices.unshift('Plano lido de Termo Aditivo sem DE/PARA: confira com o documento. '+(subs.checked?`O Sub-Total confere em ${subs.checked} ${subs.checked===1?'mês':'meses'}.`:'O Sub-Total não pôde ser conferido; só as rubricas foram conferidas com os totais.'));}
  if(selected.filtered)result.notices.unshift('Adendo: leitura limitada aos trechos identificados como PARA. Confira se as demais rubricas não alteradas estão completas; um adendo parcial pode exigir o PUR consolidado.');
  if(adendo&&!selected.hasDe)result.notices.unshift('Adendo: foi encontrado PARA sem DE. Verifique a integridade do documento.');
- const rh=rhTotals(pages,file.name);result.rhTotals=rh.totals;result.notices.push(...rh.notices);
+ let rh=rhTotals(pages,file.name);
+ // Horas de RH não achadas e páginas puladas pelo OCR: a tabela pode estar numa página sem grade. Lê essas páginas e tenta de novo.
+ if(ocr?.skipped?.length&&!(rh.totals?.RHD&&rh.totals?.RHI)){
+  const more=await ocrPages(file,buffer,ocr.skipped.map(p=>p-1),(a,b)=>options.onProgress?.(b?`Procurando as horas de RH: página ${a} de ${b}…`:a),options.signal,{all:true});
+  pages=pages.map((lines,i)=>more.lines[i]?.length?more.lines[i]:lines);rh=rhTotals(pages,file.name);
+  const i=extraNotices.findIndex(n=>n.includes('sem tabela'));if(i>=0)extraNotices.splice(i,1);
+ }
+ result.rhTotals=rh.totals;result.notices.push(...rh.notices);result.notices.push(...extraNotices);
  result.text=full;
  result.adendo={detected:adendo,usedPara:selected.filtered,hasDe:selected.hasDe,hasPara:selected.hasPara,headerMonths:byHeader};
  return result;

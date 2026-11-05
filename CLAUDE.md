@@ -12,14 +12,14 @@ Repositório: https://github.com/jonmns/impressora-indicadores
 - Nenhuma dependência vem de CDN durante o uso. Bibliotecas ficam em `vendor/`.
 - O documento não sai da máquina do usuário.
 - Em dúvida entre valor errado e campo pendente, deixe pendente. Valor de OCR nunca passa sem aviso.
-- Toda leitura incerta vira confirmação (`buildChecks` em `engine.js`): avisos da extração, menos os informativos, e os valores de OCR por rubrica. O Excel só é gerado com todas respondidas (Confirmado ou Corrigido na tabela), e as respostas vão para a memória de preenchimento. Cada confirmação abre a tela de resolução (`resolve.js`): à esquerda a fonte (página do PUR renderizada pelo pdf.js, com o valor destacado na linha da rubrica e na coluna do mês quando o PDF tem texto, ou o trecho da planilha com a célula marcada); à direita os valores lidos, editáveis. `cellsForCheck` liga o aviso às células (rubrica, linha e meses citados) e `sourceRef` acha a página ou a célula de origem.
+- Toda leitura incerta vira confirmação (`buildChecks` em `engine.js`): avisos da extração, menos os informativos, e os valores de OCR por rubrica. O Excel só é gerado com todas respondidas (Confirmado ou Corrigido na tabela), e as respostas vão para a memória de preenchimento. `tidyNotices` junta avisos repetidos (duração, adendo, profissionais) e descarta o de quadro de horas quando as horas foram lidas; PUR igual nos dois arquivos e páginas puladas são só informação. OCR igual à planilha de apoio (`data.agree`, gravado em `applyPdf`) vem conferido. Cada confirmação abre a tela de resolução (`resolve.js`): à esquerda a fonte (página do PUR renderizada pelo pdf.js, com o valor destacado na linha da rubrica e na coluna do mês quando o PDF tem texto, ou o trecho da planilha com a célula marcada); à direita os valores lidos, editáveis. `cellsForCheck` liga o aviso às células (rubrica, linha e meses citados) e `sourceRef` acha a página ou a célula de origem.
 - Responda em português, em prosa direta.
 
 ## Como testar
 
 Sirva a pasta com `python -m http.server 8931`. Não abra `index.html` por `file://`.
 
-- `tests.html`: testes no navegador (103 verificações). Inclui OCR real com o Tesseract de `vendor/`: um quadro desenhado em canvas, com células apagadas da leitura para exercitar `fillGaps`.
+- `tests.html`: testes no navegador (111 verificações). Inclui OCR real com o Tesseract de `vendor/`: um quadro desenhado em canvas, com células apagadas da leitura para exercitar `fillGaps`.
 - `dev/run-tests.js` ou `dev/run_tests.py`: (também rodam no CI, `.github/workflows/tests.yml`) rodam `tests.html` no Chromium via Playwright. Uso: `python dev/run_tests.py http://127.0.0.1:8931`.
 - `dev/make_fixtures.py` e `dev/make_scan.py`: geram PDFs e planilha sintéticos. Dependências: pillow, playwright, reportlab, openpyxl.
 - `dev/run.js` ou `dev/run.py`: fluxo completo com PDFs de texto.
@@ -52,7 +52,7 @@ Resultado atual de `dev/ocr.py` (corretos / errados / faltando / errados sem avi
 7. Com OCR, `reviewOcr` compara cada rubrica com a coluna de total (`reconcile`) e avisa: total que parece lido errado, valor corrigido pela soma, células sem leitura que viraram zero (quantas e onde) e rubrica que não fecha.
 8. `checkSubtotals` confere cada mês contra a linha Sub-Total, somando as sete rubricas e as que não vão para o relatório (livros, viagens, treinamento, lidas por `parsePur` em `others`). Divergência vira aviso; nenhum valor é alterado.
 
-Detalhes do OCR em `pur-ocr.js`: passada rápida (escala 3) em todas as páginas, releitura (escala 5) dos quadros mensais, correção de inclinação em `skewAngle`, contraste esticado e remoção das linhas de grade em `clean`, títulos soltos (De/Para) recuperados por leitura esparsa em `addTitles`, supressão do carimbo de assinatura com `ctx.fillText=()=>{}`, releitura de células vazias em `fillGaps`, cabeçalho reconstruído em `repairHeader`. A renderização usa `intent:'print'` para não depender de animation frame com a janela fora de vista.
+Detalhes do OCR em `pur-ocr.js`: `hasGrid` renderiza cada página em escala 1 e conta as linhas de grade (`gridLines`); só páginas com 3 linhas em cada direção, ou 8 horizontais, passam pelo OCR, e sem quadro mensal achado as puladas também são lidas. Se as horas de RH não forem achadas, `readPurPdf` lê as páginas puladas. Passada rápida (escala 3) nas páginas com tabela, releitura (escala 5) dos quadros mensais, correção de inclinação em `skewAngle`, contraste esticado e remoção das linhas de grade em `clean`, títulos soltos (De/Para) recuperados por leitura esparsa em `addTitles`, supressão do carimbo de assinatura com `ctx.fillText=()=>{}`, releitura de células vazias em `fillGaps`, cabeçalho reconstruído em `repairHeader`. A renderização usa `intent:'print'` para não depender de animation frame com a janela fora de vista.
 
 ## Causas já resolvidas
 

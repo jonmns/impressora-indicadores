@@ -225,13 +225,26 @@ const memory=new Map();
 export class OcrCancelled extends Error{constructor(){super('Leitura cancelada.');this.name='AbortError';}}
 /* WebAssembly SIMD: o núcleo do Tesseract em vendor/ exige. Sem isso o worker falha de modo obscuro. */
 export const hasSimd=()=>typeof WebAssembly==='object'&&WebAssembly.validate(new Uint8Array([0,97,115,109,1,0,0,0,1,5,1,96,0,1,123,3,2,1,0,10,10,1,8,0,65,0,253,15,253,98,11]));
-export async function ocrPages(file,buffer,indices,onProgress=()=>{},signal){
+/* Linhas de grade numa imagem em tons de cinza: trechos escuros contínuos com mais de 1/4 da largura (horizontais)
+ * ou da altura (verticais). Linhas vizinhas contam como uma. Página com 3 ou mais de cada, ou com 8 ou mais horizontais
+ * (tabelas de RH só têm réguas horizontais; texto corrido tem no máximo cabeçalho e rodapé), é página de tabela. */
+export function gridLines(gray,w,h){
+ const count=(n,len,at)=>{let lines=0,prev=false;for(let i=0;i<n;i++){let run=0,best=0;for(let j=0;j<len;j++){if(at(i,j)<140){run++;if(run>best)best=run;}else run=0;}const on=best>len/4;if(on&&!prev)lines++;prev=on;}return lines;};
+ return {h:count(h,w,(y,x)=>gray[y*w+x]),v:count(w,h,(x,y)=>gray[y*w+x])};
+}
+export async function gridOf(page){
+ const canvas=await render(page,1,0),{width:w,height:h}=canvas,px=canvas.getContext("2d").getImageData(0,0,w,h).data,gray=new Uint8Array(w*h);
+ for(let i=0;i<w*h;i++)gray[i]=(px[i*4]*3+px[i*4+1]*6+px[i*4+2])/10;
+ return gridLines(gray,w,h);
+}
+async function hasGrid(page){const g=await gridOf(page);return (g.h>=3&&g.v>=3)||g.h>=8;}
+export async function ocrPages(file,buffer,indices,onProgress=()=>{},signal,{all=false}={}){
  const stop=()=>{if(signal?.aborted)throw new OcrCancelled();};stop();
  // Worker encerrado à força nunca responde: a espera pelo trabalho em curso é interrompida pelo sinal.
  const cancelled=new Promise((_,no)=>signal?.addEventListener('abort',()=>no(new OcrCancelled()),{once:true}));cancelled.catch(()=>{});
  const until=p=>Promise.race([p,cancelled]);
  if(!hasSimd())throw Error('Este navegador não tem WebAssembly SIMD, que o OCR local exige. Atualize o navegador (Chrome, Edge ou Firefox recentes) ou use o PUR em PDF com texto selecionável.');
- const key=[file.name,file.size,file.lastModified].join('|');if(memory.has(key))return memory.get(key);
+ const key=[file.name,file.size,file.lastModified,all?indices.join(','):''].join('|');if(memory.has(key))return memory.get(key);
  const [{default:Tesseract},lib]=await Promise.all([import('./vendor/tesseract.esm.min.js'),import('./vendor/pdf.min.mjs')]);
  lib.GlobalWorkerOptions.workerSrc=new URL('./vendor/pdf.worker.min.mjs',import.meta.url).href;
  const doc=await lib.getDocument({data:new Uint8Array(buffer).slice(),isEvalSupported:false,enableXfa:false,verbosity:0}).promise;
@@ -244,11 +257,18 @@ export async function ocrPages(file,buffer,indices,onProgress=()=>{},signal){
   stop();
   const lines={},rotations={};
   const run=async(list,job)=>{let next=0,done=0;await Promise.all(workers.map(async w=>{while(next<list.length){stop();const i=list[next++];await until(job(w,i));stop();done++;onProgress(done,list.length);}}));};
-  await run(indices,async(w,i)=>{const page=await doc.getPage(i+1),r=await fastPass(w,page);rotations[i]=r.rotation;lines[i]=wordsToLines(r.words,FAST,r.height);page.cleanup();});
+  // Só páginas com grade de tabela passam pelo OCR; texto corrido é pulado. Sem quadro mensal achado, as puladas são lidas também.
+  onProgress('Procurando as páginas com tabela…');const withGrid=[];
+  for(const i of indices){stop();const page=await doc.getPage(i+1);if(all||await hasGrid(page))withGrid.push(i);page.cleanup();}
+  const fast=list=>run(list,async(w,i)=>{const page=await doc.getPage(i+1),r=await fastPass(w,page);rotations[i]=r.rotation;lines[i]=wordsToLines(r.words,FAST,r.height);page.cleanup();});
+  let skipped=indices.filter(i=>!withGrid.includes(i));
+  await fast(withGrid.length?withGrid:indices);if(!withGrid.length)skipped=[];
+  if(skipped.length&&!withGrid.some(i=>monthly(lines[i]))){await fast(skipped);skipped=[];}
+  for(const i of skipped){lines[i]=[];rotations[i]=0;}
   const tables=indices.filter(i=>monthly(lines[i]));
   onProgress('Relendo os quadros mensais em alta resolução…');
   await run(tables,async(w,i)=>{const page=await doc.getPage(i+1),canvas=clean(await render(page,FINE,rotations[i]),FINE),words=await read(w,canvas,6);lines[i]=wordsToLines(words,FINE,canvas.height);await fillGaps(w,canvas,lines[i],FINE);
    const small=clean(await render(page,FAST,rotations[i]),FAST);lines[i]=addTitles(lines[i],wordsToLines(await read(w,small,11),FAST,small.height));page.cleanup();});
-  stop();const result={lines,tables,rotations,pages:indices.length};memory.set(key,result);return result;
+  stop();const result={lines,tables,rotations,pages:indices.length,skipped:skipped.map(i=>i+1)};memory.set(key,result);return result;
  }catch(e){if(signal?.aborted)throw new OcrCancelled();throw e;}finally{await Promise.allSettled(workers.map(w=>w.terminate()));await doc.destroy().catch(()=>{});}
 }

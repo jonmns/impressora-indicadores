@@ -75,7 +75,7 @@ function renderNotices(){const root=$('notices');root.replaceChildren();
  for(const c of data.checks){const d=document.createElement('div');d.className='check'+(c.answer?' answered':'');d.id='check-'+c.id;
   const t=document.createElement('p');t.textContent=c.text;const a=document.createElement('div');a.className='check-actions';
   const resolve=()=>openResolver(c,{data,files:sourceFiles,onDone:msg=>{renderNotices();render();status(msg+' Registrado na memória de preenchimento.');}});
-  if(c.answer){const s=document.createElement('span');s.className='check-done';s.textContent=c.answer==='confirmado'?'✓ Confirmado':'✓ Corrigido';a.append(s,btn('Rever',resolve,'link'),btn('Desfazer',()=>answer(c.id,null),'link'));}
+  if(c.answer){const s=document.createElement('span');s.className='check-done';s.textContent=c.auto?'✓ Conferido com a planilha de apoio':c.answer==='confirmado'?'✓ Confirmado':'✓ Corrigido';a.append(s,btn('Rever',resolve,'link'),btn('Desfazer',()=>answer(c.id,null),'link'));}
   else a.append(btn('Resolver →',resolve,'primary small'));
   d.append(t,a);root.append(d);}
 }
