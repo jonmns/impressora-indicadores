@@ -1,7 +1,7 @@
 import {categories,NS,openWorkbook,extract,exportWorkbook,missing,calculated,number,month,financialInfo,durationFromText} from './engine.js';
 import {pdfPages,parsePur,pdfNumber} from './pur-pdf.js';
 import {readPurPdf} from './pur-v2.js';
-import {textlessPages,repairNumber,repairHeader,wordsToLines,reconcile} from './pur-ocr.js';
+import {textlessPages,repairNumber,repairHeader,wordsToLines,reconcile,valueColumns} from './pur-ocr.js';
 /* PDF mínimo com texto posicionado (Helvetica), para testar a leitura real pelo pdf.js sem documentos privados. */
 function makePdf(pages){
  const objs=[],enc=s=>s.replace(/\\/g,'\\\\').replace(/\(/g,'\\(').replace(/\)/g,'\\)');
@@ -73,9 +73,11 @@ try{
  assert(repairNumber('1613148')==='16131,48'&&repairNumber('8632/75')==='8632,75'&&repairNumber('31.497,/6')==='31497,76'&&repairNumber('—.75.36/,96')==='75367,96'&&repairNumber('01/2026')==='01/2026'&&repairNumber('consumo;')==='consumo;','OCR: separador perdido e ruído');
  const rec=reconcile([100,795367.96,50],75517.96);assert(rec.ok&&rec.fixed.m===1&&rec.fixed.want===75367.96,'OCR: dígito a mais corrigido pela soma');assert(reconcile([100,200],300).ok&&!reconcile([100,200],900).ok,'OCR: soma confere ou avisa');
  assert(wordsToLines([{text:'3.839,16',x0:100,y0:100,x1:140,y1:110},{text:'3.720,16',x0:141,y0:100,x1:180,y1:110}],1,800)[0].cells.length===2,'OCR: números vizinhos não se juntam');
- const headCells=[['Rubrica',10],['Mês O1',100],['Més 02',140],['Mês 08',180],['Mês',220],['04',235],['Mês 05',260],['Mês 07',300],['TOTAL',380]].map(([text,x])=>({text,x0:x,x1:x+(text.length>3?28:10),xc:x+14}));
+ const headCells=[['Rubrica',10],['Mês O1',100],['Més 02',140],['Mês 08',180],['Mês',220],['04',235],['Mês 05',260],['Mês 07',300],['TOTAL',340]].map(([text,x])=>({text,x0:x,x1:x+(text.length>3?28:10),xc:x+14}));
  const head=repairHeader({cells:headCells,text:''}).cells.map(c=>c.text);assert(head.join()==='Rubrica,Mês 01,Mês 02,Mês 03,Mês 04,Mês 05,Mês 06,TOTAL','OCR: cabeçalho reconstruído');
  const gap=repairHeader({cells:[100,140,220,260,300].map((x,i)=>({text:'Mês '+[1,2,4,5,6][i],x0:x,x1:x+28,xc:x+14})),text:''}).cells.map(c=>c.text);assert(gap.length===6&&gap[2]==='Mês 03','OCR: coluna perdida volta pelo espaçamento');
+ const tail=repairHeader({cells:[100,140,180,220,['TOTAL',300]].map((x,i)=>Array.isArray(x)?{text:x[0],x0:x[1],x1:x[1]+28}:{text:'Mês '+(i+1),x0:x,x1:x+28,xc:x+14}),text:''}).cells.map(c=>c.text);assert(tail.length===6&&tail[4]==='Mês 05','OCR: última coluna perdida volta pelo Total');
+ const cols=valueColumns([1,2,3].map(()=>({cells:[{text:'10,00',x1:100},{text:'20,00',x1:141},{text:'-',x1:180}]})));assert(cols.join()==='100,141,180','OCR: colunas pela borda direita');
  const stamp=Array.from({length:6},()=>[{text:'Assinado digitalmente por Fulano'}]);stamp[4]=[...stamp[4],{text:'x'.repeat(200)}];assert(textlessPages(stamp).join()==='0,1,2,3,5','OCR: carimbo repetido não conta como texto');
  assert(wordsToLines([{text:'Para:',x0:100,y0:100,x1:150,y1:120}],1,800)[0].text==='Para:','OCR: palavras viram linhas');
  const info=financialInfo(fin);assert(info.project==='Projeto sintético'&&info.start===month(46266)&&info.lastClosed===month(46266),'financeiro: projeto, início e última competência realizada');

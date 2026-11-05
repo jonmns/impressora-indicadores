@@ -93,10 +93,10 @@ export function parsePur(pages,{duration:given,start,file='PUR.pdf'}){
  for(const cat of categories){values[cat]={2:Array(duration).fill(null)};sources[cat]={2:Array(duration).fill(null)};if(cat==='RHD'||cat==='RHI')for(const r of [10,15]){values[cat][r]=Array(duration).fill(null);sources[cat][r]=Array(duration).fill(null);}}
  const totals={},functions={RHD:new Map(),RHI:new Map()},seen=new Set();let headers=0,hoursTables=0;
  pages.forEach((lines,p)=>{
-  let header=null,kind='money',group=null,pending='';
+  let header=null,kind='money',group=null,pending='',history=[];
   lines.forEach((line,i)=>{
    const h=detectHeader(line,start);
-   if(h){header=h;headers++;pending='';
+   if(h){header=h;headers++;pending='';history=[];
     const context=lines.slice(Math.max(0,i-4),i+1).map(l=>norm(l.text)).join(' ');
     kind=/\bhoras?\b|h\/mes|\bhh\b|carga horaria/.test(context)?'hours':'money';
     group=null;for(const l of lines.slice(Math.max(0,i-4),i+1)){const r=rubrica(l.text);if(r==='RHD'||r==='RHI')group=r;}
@@ -109,9 +109,10 @@ export function parsePur(pages,{duration:given,start,file='PUR.pdf'}){
    if(!nums.length){
     if(own.length>90){header=null;return;}
     const r=rubrica(own);if(kind==='hours'&&(r==='RHD'||r==='RHI'))group=r;else if(kind==='hours'&&r)group=null;
-    pending=own;return;}
+    pending=own;if(own)history.push(own);return;}
    const next=lines[i+1],nextLabel=next&&!next.cells.some(c=>pdfNumber(c.text)!==null)?next.cells.filter(c=>c.x1<header.firstX).map(c=>c.text).join(' '):'';
-   const candidates=[own,`${pending} ${own}`,`${own} ${nextLabel}`,`${pending} ${own} ${nextLabel}`].map(s=>s.trim()).filter(Boolean);
+   // Número sem rótulo na própria linha: o rótulo pode ter várias linhas acima dele.
+   const candidates=[own,`${pending} ${own}`,`${own} ${nextLabel}`,`${pending} ${own} ${nextLabel}`,own?'':history.join(' ')].map(s=>s.trim()).filter(Boolean);history=[];
    const where=`${file}, p. ${p+1}`;
    if(isTotal(own)){pending='';if(kind==='hours')group=null;return;}
    if(kind==='money'){
