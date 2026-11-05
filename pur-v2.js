@@ -69,7 +69,7 @@ export function checkSubtotals(result,ocr=false){
   if(Math.abs(sum-want)>tol)bad.push({m,sum,want,missing:parts.some(v=>v===null)});}
  const tag=ocr?'OCR: ':'';
  if(bad.length)result.notices.unshift(`${tag}a soma das rubricas difere da linha Sub-Total do quadro em ${bad.length===1?'1 mês':bad.length+' meses'}: ${bad.map(b=>`mês ${b.m+1} (soma ${brl(b.sum)}, Sub-Total ${brl(b.want)}${b.missing?', há rubrica fora do relatório sem leitura':''})`).join('; ')}. Nenhum valor foi alterado; confira esses meses no PDF.`);
- if(open.length&&checked)result.notices.push(`Sub-Total do quadro não conferido ${open.length===1?'no mês':'nos meses'} ${open.join(', ')}, porque há rubrica pendente.`);
+ if(open.length)result.notices.push(`Sub-Total do quadro não conferido ${open.length===1?'no mês':'nos meses'} ${open.join(', ')}, porque há rubrica pendente.`);
  return {checked,ok:checked-bad.length,bad:bad.length};
 }
 

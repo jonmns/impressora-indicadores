@@ -71,8 +71,10 @@ const numeric=t=>t==='-'||/^[\d.,]*\d[\d.,]*$/.test(t);
 /* Agrupa palavras em linhas e células. Números vizinhos nunca se juntam, porque as colunas mensais ficam muito próximas. */
 function linesOf(items){
  const lines=[];
- for(const it of [...items].sort((a,b)=>b.y-a.y||a.x-b.x)){const tol=Math.max(2,it.h*.45);let line=lines.find(l=>Math.abs(l.y-it.y)<=tol);if(!line){line={y:it.y,items:[]};lines.push(line);}line.items.push(it);}
- lines.sort((a,b)=>b.y-a.y);
+ // Agrupa pelo centro vertical: a base de um traço fica acima da base dos dígitos, e uma linha de traços separava os números.
+ const mid=it=>it.y+it.h/2;
+ for(const it of [...items].sort((a,b)=>mid(b)-mid(a)||a.x-b.x)){const tol=Math.max(2,it.h*.45);let line=lines.find(l=>Math.abs(l.c-mid(it))<=tol);if(!line){line={c:mid(it),y:it.y,items:[]};lines.push(line);}line.items.push(it);line.y=Math.min(line.y,it.y);}
+ lines.sort((a,b)=>b.c-a.c);
  return lines.map(l=>{
   const cells=[];
   for(const it of l.items.sort((a,b)=>a.x-b.x)){const last=cells[cells.length-1],gap=last?it.x-last.x1:Infinity;
@@ -80,7 +82,8 @@ function linesOf(items){
    if(last&&gap<Math.max(2,it.h*.7)&&(fragment||(!numeric(it.text)&&!numeric(last.text)))){last.text+=(fragment?'':' ')+it.text;last.x1=Math.max(last.x1,it.x+it.w);}
    else cells.push({x0:it.x,x1:it.x+it.w,text:it.text});}
   for(const c of cells)c.xc=(c.x0+c.x1)/2;
-  const hs=l.items.map(i=>i.h).sort((a,b)=>a-b);
+  // Altura típica da linha sem os traços, que são baixos e encolhiam o recorte de fillGaps.
+  const tall=l.items.filter(i=>i.text.length>1),hs=(tall.length?tall:l.items).map(i=>i.h).sort((a,b)=>a-b);
   return {y:l.y,h:hs[Math.floor(hs.length/2)],cells,text:cells.map(c=>c.text).join(' ')};
  });
 }
@@ -108,19 +111,52 @@ function looksSideways(canvas){
  return spread(cols)>spread(rows)*1.2;
 }
 
+/* Inclinação da digitalização, em radianos: o ângulo em que a tinta se concentra em menos linhas.
+ * Num quadro largo, 1 grau já faz uma linha invadir a de baixo. */
+export function skewAngle(canvas){
+ const k=4,w=Math.floor(canvas.width/k),h=Math.floor(canvas.height/k);if(w<50||h<50)return 0;
+ const small=document.createElement('canvas');small.width=w;small.height=h;
+ const ctx=small.getContext('2d',{willReadFrequently:true});ctx.drawImage(canvas,0,0,w,h);const px=ctx.getImageData(0,0,w,h).data;
+ const hist=new Uint32Array(256);for(let i=0;i<w*h;i++)hist[px[i*4+1]]++;
+ let n=0,bg=255;for(let g=0;g<256;g++){n+=hist[g];if(n>=w*h/2){bg=g;break;}}
+ let xs=[],ys=[];for(let y=0;y<h;y++)for(let x=0;x<w;x++)if(px[(y*w+x)*4+1]<bg-40){xs.push(x);ys.push(y);}
+ if(xs.length<200)return 0;
+ const every=Math.ceil(xs.length/30000);if(every>1){xs=xs.filter((_,i)=>i%every===0);ys=ys.filter((_,i)=>i%every===0);}
+ const off=w*.06+2,bins=new Int32Array(h+2*Math.ceil(off)+2);
+ const score=a=>{const t=Math.tan(a);bins.fill(0);for(let i=0;i<xs.length;i++)bins[Math.round(ys[i]+xs[i]*t+off)]++;let s=0;for(const v of bins)s+=v*v;return s;};
+ // Busca grossa de meio em meio grau, depois refinada de 0,1 em 0,1 em volta do melhor.
+ const flat=score(0),deg=Math.PI/180;let best=0,top=flat;
+ for(let d=-3;d<=3.001;d+=.5){const v=score(d*deg);if(v>top){top=v;best=d;}}
+ for(let d=best-.4;d<=best+.401;d+=.1){const v=score(d*deg);if(v>top){top=v;best=d;}}
+ best*=deg;
+ return Math.abs(best)>=.25*Math.PI/180&&top>flat*1.1?best:0;
+}
+function deskew(canvas){
+ const a=skewAngle(canvas);if(!a)return canvas;
+ const out=document.createElement('canvas');out.width=canvas.width;out.height=canvas.height;
+ const ctx=out.getContext('2d',{willReadFrequently:true});ctx.fillStyle='#fff';ctx.fillRect(0,0,out.width,out.height);
+ ctx.translate(out.width/2,out.height/2);ctx.rotate(a);ctx.drawImage(canvas,-canvas.width/2,-canvas.height/2);return out;
+}
+
 async function render(page,scale,rotation){
  const viewport=page.getViewport({scale,rotation:(page.rotate+rotation)%360}),canvas=document.createElement('canvas');
  canvas.width=Math.ceil(viewport.width);canvas.height=Math.ceil(viewport.height);
  const ctx=canvas.getContext('2d',{willReadFrequently:true});ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);
  ctx.fillText=()=>{}; // O único texto real destas páginas é o carimbo de assinatura, que costuma passar por cima dos quadros.
  await page.render({canvasContext:ctx,viewport,intent:'print'}).promise; // 'print' não depende de animação: a leitura segue com a janela em segundo plano.
- return canvas;
+ return deskew(canvas);
 }
 
 /* Tons de cinza, fundo limpo e sem as linhas de grade, que o OCR confunde com letras e que escondem o cabeçalho dos quadros. */
-function clean(canvas,scale){
+export function clean(canvas,scale){
  const ctx=canvas.getContext('2d',{willReadFrequently:true}),W=canvas.width,H=canvas.height,img=ctx.getImageData(0,0,W,H),d=img.data,dark=new Uint8Array(W*H),kill=new Uint8Array(W*H),L=Math.round(14*scale);
- for(let i=0;i<W*H;i++){const g=.3*d[i*4]+.59*d[i*4+1]+.11*d[i*4+2],v=g>=175?255:g<=95?0:(g-95)*255/80;d[i*4]=d[i*4+1]=d[i*4+2]=v;dark[i]=v<190?1:0;}
+ // Digitalização com pouco contraste: a tinta mais escura vira preto e o fundo (mediana) vira branco antes dos limiares.
+ const gray=new Float32Array(W*H),hist=new Uint32Array(256);
+ for(let i=0;i<W*H;i++){const g=.3*d[i*4]+.59*d[i*4+1]+.11*d[i*4+2];gray[i]=g;hist[g|0]++;}
+ const at=(q,top=256)=>{let all=0;for(let k=0;k<top;k++)all+=hist[k];let n=0;for(let k=0;k<top;k++){n+=hist[k];if(n>=all*q)return k;}return top-1;};
+ // Fundo: mediana da página. Tinta: 5% mais escuros entre os pixels bem mais escuros que o fundo.
+ const hi=at(.5),ink=hist.slice(0,Math.max(0,hi-40)).reduce((a,b)=>a+b,0),lo=ink>=W*H*.0005?at(.05,hi-40):0,span=(lo>70||hi<215)&&hi-lo>=40?255/(hi-lo):0;
+ for(let i=0;i<W*H;i++){const g=span?Math.min(255,Math.max(0,(gray[i]-lo)*span)):gray[i],v=g>=175?255:g<=95?0:(g-95)*255/80;d[i*4]=d[i*4+1]=d[i*4+2]=v;dark[i]=v<190?1:0;}
  for(let y=0;y<H;y++){let s=-1;for(let x=0;x<=W;x++){const on=x<W&&dark[y*W+x];if(on&&s<0)s=x;if(!on&&s>=0){if(x-s>=L)for(let k=s;k<x;k++)kill[y*W+k]=1;s=-1;}}}
  for(let x=0;x<W;x++){let s=-1;for(let y=0;y<=H;y++){const on=y<H&&dark[y*W+x];if(on&&s<0)s=y;if(!on&&s>=0){if(y-s>=L)for(let k=s;k<y;k++)kill[k*W+x]=1;s=-1;}}}
  for(let i=0;i<W*H;i++)if(kill[i])d[i*4]=d[i*4+1]=d[i*4+2]=255;

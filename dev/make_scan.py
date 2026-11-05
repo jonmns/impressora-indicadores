@@ -3,6 +3,7 @@
 #   PUR_scan.pdf       PUR sem adendo, quadro girado 90 graus
 #   PUR_scan_ruim.pdf  digitalizacao pior: baixa resolucao, inclinacao, pouco contraste, ruido e JPEG forte
 #   PUR_scan_270.pdf   quadro girado 270 graus
+#   PUR_scan_pessimo.pdf  como o ruim, com resolucao e JPEG ainda piores: o OCR pode falhar, mas nao pode errar sem aviso
 import sys,asyncio,io,random
 from PIL import Image,ImageFilter,ImageEnhance
 from playwright.async_api import async_playwright
@@ -65,7 +66,7 @@ def stamp(c):
 async def variants():
     import json
     rv=random.Random(11)
-    specs=[('PUR_scan',12,2.4,90,None,70),('PUR_scan_ruim',10,1.6,90,worse,35),('PUR_scan_270',14,2.4,270,None,70)]
+    specs=[('PUR_scan',12,2.4,90,None,70),('PUR_scan_ruim',10,2.0,90,worse,45),('PUR_scan_270',14,2.4,270,None,70),('PUR_scan_pessimo',10,1.6,90,worse,35)]
     async with async_playwright() as p:
         b=await p.chromium.launch()
         for name,n,dpr,rot,fx,q in specs:

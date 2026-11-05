@@ -1,7 +1,7 @@
 import {categories,NS,openWorkbook,extract,exportWorkbook,missing,calculated,number,month,financialInfo,durationFromText} from './engine.js';
 import {pdfPages,parsePur,pdfNumber} from './pur-pdf.js';
 import {readPurPdf,reviewOcr,checkSubtotals} from './pur-v2.js';
-import {textlessPages,repairNumber,repairHeader,wordsToLines,reconcile,valueColumns,addTitles,fillGaps} from './pur-ocr.js';
+import {textlessPages,repairNumber,repairHeader,wordsToLines,reconcile,valueColumns,addTitles,fillGaps,clean,skewAngle} from './pur-ocr.js';
 /* PDF mínimo com texto posicionado (Helvetica), para testar a leitura real pelo pdf.js sem documentos privados. */
 function makePdf(pages){
  const objs=[],enc=s=>s.replace(/\\/g,'\\\\').replace(/\(/g,'\\(').replace(/\)/g,'\\)');
@@ -102,6 +102,12 @@ try{
  assert(durationFromText('Prazo de execução: 15 (quinze) meses')===15&&durationFromText('A duração do projeto é de 12 meses')===12&&durationFromText('Mês 1 Mês 2')===null&&durationFromText('prazo de 30 dias')===null,'duração lida do texto do PUR');
  const auto=parsePur(pages,{start,file:'PUR_sintetico.pdf'});assert(auto.duration===12&&auto.values.Equipamentos[2].length===12,'duração deduzida do cronograma quando o texto não informa');
  const withText=parsePur([[...pages[0],{y:0,cells:[{x0:0,x1:10,xc:5,text:'Prazo de execução: 9 meses'}],text:'Prazo de execução: 9 meses'}],pages[1]],{start,file:'x.pdf'});assert(withText.duration===9&&withText.values.RHD[15].length===9,'duração do texto prevalece e corta os meses excedentes');
+ {const c=document.createElement('canvas');c.width=900;c.height=600;const x=c.getContext('2d');x.fillStyle='rgb(232,232,232)';x.fillRect(0,0,900,600);x.fillStyle='rgb(150,150,150)';x.font='30px Arial';for(let r=0;r<8;r++)x.fillText('12.345,67  89.012,34  56.789,01',40,60+r*60);
+  let ink=0;clean(c,1);const d=c.getContext('2d').getImageData(0,0,900,600).data;for(let i=0;i<d.length;i+=4)if(d[i]<100)ink++;
+  assert(ink>2000&&d[0]===255,'OCR: digitalização com pouco contraste mantém o texto escuro e o fundo branco');
+  const t=document.createElement('canvas');t.width=1600;t.height=1000;const y=t.getContext('2d');y.fillStyle='#fff';y.fillRect(0,0,1600,1000);y.translate(800,500);y.rotate(1.5*Math.PI/180);y.fillStyle='#000';y.font='28px Arial';for(let r=-6;r<=6;r++)y.fillText('Rubrica 1.234,56 7.890,12 3.456,78 9.012,34 5.678,90 1.234,56',-700,r*60);
+  const a=skewAngle(t)*180/Math.PI;assert(Math.abs(a+1.5)<=.25,'OCR: inclinação de 1,5 grau detectada, com o sinal que a desfaz');
+  const reto=document.createElement('canvas');reto.width=1600;reto.height=1000;const z=reto.getContext('2d');z.fillStyle='#fff';z.fillRect(0,0,1600,1000);z.fillStyle='#000';z.font='28px Arial';for(let r=1;r<14;r++)z.fillText('Rubrica 1.234,56 7.890,12 3.456,78 9.012,34',100,r*70);assert(skewAngle(reto)===0,'OCR: página reta não é girada');}
  // OCR real: quadro desenhado no canvas, lido pelo Tesseract; células apagadas da leitura voltam pela releitura de fillGaps.
  {const {default:Tesseract}=await import('./vendor/tesseract.esm.min.js'),B=new URL('./vendor/',location.href).href,S=5;
   const worker=await Tesseract.createWorker('por',1,{workerPath:B+'worker.min.js',corePath:B+'tesseract-core-simd-lstm.wasm.js',langPath:B.replace(/\/$/,''),gzip:true,cacheMethod:'none',workerBlobURL:false});

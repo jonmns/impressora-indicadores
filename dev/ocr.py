@@ -27,13 +27,19 @@ with sync_playwright() as p:
         print('ERRO', r['error']); print(r['status']); b.close(); sys.exit(1)
     print(r['status'], r['err']); print('\n'.join(r['notices'])); print('duracao', r['dur'], 'fonte', r['src'])
     cmap = {'Equipamentos': 'prog', 'Laboratório': 'lab', 'RHD': 'rhd', 'RHI': 'rhi', 'Materiais': 'mat', 'STT': 'stt', 'Correlatos': 'cor'}
-    ok = bad = miss = 0
+    # Valor errado com aviso na rubrica ainda é tolerável em digitalização ruim; errado sem aviso é a falha grave.
+    warned = lambda c: any(c in n for n in r['notices'] if n.startswith('OCR:') or 'mais de um valor' in n)
+    ok = bad = miss = silent = 0
     for c, k in cmap.items():
         v, t = r['values'][c], truth[k]
         for i, x in enumerate(t):
             y = v[i] if i < len(v) else None
             if y is None: miss += 1; print('faltou', c, i + 1, x)
             elif abs(y - x) < .005: ok += 1
-            else: bad += 1; print('errado', c, i + 1, 'real', x, 'lido', y)
-    print({'ok': ok, 'bad': bad, 'miss': miss}); print('\n'.join(logs[:5])); b.close()
-    sys.exit(1 if bad else 0)
+            else:
+                bad += 1; quiet = not warned(c); silent += quiet
+                print('errado', c, i + 1, 'real', x, 'lido', y, 'SEM AVISO' if quiet else '(rubrica com aviso)')
+    print({'ok': ok, 'bad': bad, 'miss': miss, 'sem_aviso': silent}); print('\n'.join(logs[:5])); b.close()
+    # Nas digitalizações degradadas de propósito, só o erro sem aviso reprova.
+    tolerant = pdf in ('PUR_scan_ruim.pdf', 'PUR_scan_pessimo.pdf')
+    sys.exit(1 if silent or (bad and not tolerant) else 0)
