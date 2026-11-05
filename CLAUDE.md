@@ -18,7 +18,7 @@ Repositório: https://github.com/jonmns/impressora-indicadores
 
 Sirva a pasta com `python -m http.server 8931`. Não abra `index.html` por `file://`.
 
-- `tests.html`: testes no navegador (87 verificações). Inclui OCR real com o Tesseract de `vendor/`: um quadro desenhado em canvas, com células apagadas da leitura para exercitar `fillGaps`.
+- `tests.html`: testes no navegador (88 verificações). Inclui OCR real com o Tesseract de `vendor/`: um quadro desenhado em canvas, com células apagadas da leitura para exercitar `fillGaps`.
 - `dev/run-tests.js` ou `dev/run_tests.py`: (também rodam no CI, `.github/workflows/tests.yml`) rodam `tests.html` no Chromium via Playwright. Uso: `python dev/run_tests.py http://127.0.0.1:8931`.
 - `dev/make_fixtures.py` e `dev/make_scan.py`: geram PDFs e planilha sintéticos. Dependências: pillow, playwright, reportlab, openpyxl.
 - `dev/run.js` ou `dev/run.py`: fluxo completo com PDFs de texto.
@@ -88,11 +88,22 @@ Itens 4 a 8 resolvidos (avisos de `reviewOcr`, conferência pelo Sub-Total, vari
 
 9. ~~Cancelar o OCR~~ Feito: botão "Cancelar leitura" (`AbortController` de `app.js` até `ocrPages`, que encerra os workers e o pdf.js; cancelou em cerca de 1,7 s no teste e permite nova extração).
 10. ~~Navegador sem SIMD~~ Feito: sem SIMD o núcleo não carrega, então `ocrPages` checa `hasSimd()` e mostra mensagem clara (atualizar o navegador ou usar PDF com texto). Testado simulando `WebAssembly.validate` falso; não há núcleo não SIMD em `vendor/`.
-11. **Adiado**: cronometrar o documento longo, com a janela visível e em segundo plano, uma única vez depois de juntar os branches de OCR. Antes, com a janela visível, levava de 4 a 7 minutos.
+11. ~~Cronometrar o OCR~~ Medido em 5/11/2026 na `main` 359d9b0, Chrome em janela visível e em segundo plano (outra aba na frente), máquina com 16 threads (6 workers do Tesseract). Documentos sintéticos de `dev/make_scan.py`. Tempos em segundos, do clique em Extrair até o fim:
+
+    | Documento | Janela | Preparar + 1ª página | Passada rápida | Releitura dos quadros (inclui `fillGaps`) | Total |
+    |---|---|---|---|---|---|
+    | 4 páginas, 2 quadros | visível | 5,4 | 1,4 | 6,7 | 13,5 |
+    | 4 páginas, 2 quadros | segundo plano | 10,6 | 2,9 | 35,5 | 48,9 |
+    | 42 páginas, 2 quadros | visível | 5,9 | 33,2 | 7,3 | 46,4 |
+    | 42 páginas, 2 quadros | segundo plano | 11,0 | 75,1 | 32,3 | 118,4 |
+    | 2 páginas, 1 quadro | visível | 4,4 | 0 | 4,9 | 9,3 |
+    | 2 páginas, 1 quadro | segundo plano | 9,8 | 0,1 | 26,8 | 36,7 |
+
+    Em segundo plano o OCR leva de 2,5 a 4 vezes mais, sobretudo na releitura em escala 5. Mesmo assim termina e não trava. A passada rápida custa cerca de 0,8 s por página com a janela visível e 1,8 s em segundo plano. `fillGaps` roda dentro da releitura e não foi separado, porque isso exigiria alterar o código. Estes PDFs têm poucos quadros; o documento real longo (4 a 7 minutos antes) não foi cronometrado e depende de ter muitos quadros mensais.
 
 ### Manutenção
 
-12. ~~Versionar `dev/` e avaliar CI~~ Feito: `dev/` já estava versionado (só scripts; `.gitignore` agora também bloqueia `dev/fixtures/`, `dev/out/`, `__pycache__/` e `*.log`). `.github/workflows/tests.yml` (**ainda não enviado**: o token do push não tem o escopo `workflow`; o arquivo precisa ser commitado por quem tem esse acesso) roda em push e PR, com ações fixadas por SHA e Playwright 1.64.1 / openpyxl 3.1.5: serve a pasta, roda `dev/run_tests.py` (`tests.html`) e `dev/run.py` com PDFs de texto gerados por `dev/make_fixtures.py`, reprovando em erro de tela ou da página. O OCR completo (`dev/ocr.py`) fica fora do CI por ser lento.
+12. ~~Versionar `dev/` e avaliar CI~~ Feito: `dev/` já estava versionado (só scripts; `.gitignore` agora também bloqueia `dev/fixtures/`, `dev/out/`, `__pycache__/` e `*.log`). `.github/workflows/tests.yml` roda em push e PR, com ações fixadas por SHA e Playwright 1.64.1 / openpyxl 3.1.5: serve a pasta, roda `dev/run_tests.py` (`tests.html`) e `dev/run.py` com PDFs de texto gerados por `dev/make_fixtures.py`, reprovando em erro de tela ou da página. O OCR completo (`dev/ocr.py`) fica fora do CI por ser lento.
 13. Citar `pur-ocr.js` na seção Arquitetura do `README.md`.
 14. ~~Remover `LEIA-ME-ANTES-DE-ENVIAR.txt`~~ Resolvido: arquivo removido e as observações úteis foram para o `README.md`.
 15. ~~`rotatedPages` redundante?~~ Resolvido: **fica**. Testado com PDFs de texto sintéticos (cabeçalho girado 90° e 270°; página inteira girada 90° e 270°), com e sem a função: cabeçalho girado dá o mesmo resultado nos dois casos (12 meses, mesmos valores), mas com a página inteira girada 270° sem `rotatedPages` o documento falha ("Não encontrei a quantidade de meses") e com ela a duração é achada. Custo medido: 0,0 a 0,17 s por PDF de uma página, contra minutos de OCR. Limite conhecido: com a página inteira girada, só o cabeçalho vem da segunda leitura; os valores das rubricas ficam pendentes (e a página girada 90° não acha 12 meses nem com ela). Comentário no código explica.
