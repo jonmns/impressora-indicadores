@@ -149,19 +149,24 @@ export function valueColumns(rows){
  return groups.filter(g=>g.length>=3).map(g=>g[Math.floor(g.length/2)]);
 }
 
-/* O OCR às vezes perde um valor isolado da linha. Cada célula vazia é relida sozinha, ampliada e aceitando só números. */
-async function fillGaps(worker,canvas,lines,scale){
+/* O OCR às vezes perde um valor isolado da linha. Cada célula vazia é relida sozinha, aceitando só números.
+ * O recorte é ampliado até os dígitos ficarem com uns 32 px de altura: letra grande demais também atrapalha o Tesseract.
+ * Sem leitura confiável, tenta uma segunda ampliação, que só vale para valor completo com centavos. */
+export async function fillGaps(worker,canvas,lines,scale){
  const rows=lines.filter(l=>l.cells.filter(c=>numeric(c.text)).length>=6);if(rows.length<3)return;
  const columns=valueColumns(rows);if(columns.length<6)return;
+ const step=columns.slice(1).map((x,i)=>x-columns[i]).sort((a,b)=>a-b)[Math.floor((columns.length-1)/2)];
  await worker.setParameters({tessedit_pageseg_mode:'7',tessedit_char_whitelist:'0123456789.,-'});
  const H=canvas.height;
  for(const row of rows)for(let i=0;i<columns.length;i++){const right=columns[i];
   if(row.cells.some(c=>Math.abs(c.x1-right)<=4))continue;
-  const left=i?columns[i-1]+1:right-40,x=Math.floor(left*scale),w=Math.ceil((right+2)*scale)-x,bottom=H-row.y*scale,h=Math.ceil(row.h*scale*1.8),y=Math.floor(bottom-row.h*scale*1.4);
-  const crop=document.createElement('canvas');crop.width=w*2+40;crop.height=h*2+40;
-  const ctx=crop.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,crop.width,crop.height);ctx.imageSmoothingQuality='high';ctx.drawImage(canvas,x,y,w,h,20,20,w*2,h*2);
-  const {data}=await worker.recognize(crop,{},{blocks:true}),text=repairNumber(wordsOf(data).map(k=>k.text).join(''));
-  if(numeric(text))row.cells.push({x0:right-text.length*row.h*.45,x1:right,xc:right,text});
+  const left=i?columns[i-1]+1:right-Math.min(step,60),x=Math.floor(left*scale),w=Math.ceil((right+2)*scale)-x,bottom=H-row.y*scale,h=Math.ceil(row.h*scale*1.8),y=Math.floor(bottom-row.h*scale*1.4);
+  const zoom=Math.min(3,Math.max(1,32/(row.h*scale)));
+  for(const [n,k] of [zoom,zoom>1.5?zoom/2:zoom*2].entries()){
+   const crop=document.createElement('canvas');crop.width=Math.ceil(w*k)+40;crop.height=Math.ceil(h*k)+40;
+   const ctx=crop.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,crop.width,crop.height);ctx.imageSmoothingQuality='high';ctx.drawImage(canvas,x,y,w,h,20,20,w*k,h*k);
+   const {data}=await worker.recognize(crop,{},{blocks:true}),text=repairNumber(wordsOf(data).map(k=>k.text).join(''));
+   if(n?/\d,\d{2}$/.test(text):numeric(text)){row.cells.push({x0:right-text.length*row.h*.45,x1:right,xc:right,text});break;}}
  }
  for(const row of rows){row.cells.sort((a,b)=>a.x0-b.x0);row.text=row.cells.map(c=>c.text).join(' ');}
  await worker.setParameters({tessedit_char_whitelist:''});

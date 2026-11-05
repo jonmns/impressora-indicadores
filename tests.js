@@ -1,7 +1,7 @@
 import {categories,NS,openWorkbook,extract,exportWorkbook,missing,calculated,number,month,financialInfo,durationFromText} from './engine.js';
 import {pdfPages,parsePur,pdfNumber} from './pur-pdf.js';
 import {readPurPdf,reviewOcr,checkSubtotals} from './pur-v2.js';
-import {textlessPages,repairNumber,repairHeader,wordsToLines,reconcile,valueColumns,addTitles} from './pur-ocr.js';
+import {textlessPages,repairNumber,repairHeader,wordsToLines,reconcile,valueColumns,addTitles,fillGaps} from './pur-ocr.js';
 /* PDF mínimo com texto posicionado (Helvetica), para testar a leitura real pelo pdf.js sem documentos privados. */
 function makePdf(pages){
  const objs=[],enc=s=>s.replace(/\\/g,'\\\\').replace(/\(/g,'\\(').replace(/\)/g,'\\)');
@@ -101,5 +101,22 @@ try{
  assert(durationFromText('Prazo de execução: 15 (quinze) meses')===15&&durationFromText('A duração do projeto é de 12 meses')===12&&durationFromText('Mês 1 Mês 2')===null&&durationFromText('prazo de 30 dias')===null,'duração lida do texto do PUR');
  const auto=parsePur(pages,{start,file:'PUR_sintetico.pdf'});assert(auto.duration===12&&auto.values.Equipamentos[2].length===12,'duração deduzida do cronograma quando o texto não informa');
  const withText=parsePur([[...pages[0],{y:0,cells:[{x0:0,x1:10,xc:5,text:'Prazo de execução: 9 meses'}],text:'Prazo de execução: 9 meses'}],pages[1]],{start,file:'x.pdf'});assert(withText.duration===9&&withText.values.RHD[15].length===9,'duração do texto prevalece e corta os meses excedentes');
+ // OCR real: quadro desenhado no canvas, lido pelo Tesseract; células apagadas da leitura voltam pela releitura de fillGaps.
+ {const {default:Tesseract}=await import('./vendor/tesseract.esm.min.js'),B=new URL('./vendor/',location.href).href,S=5;
+  const worker=await Tesseract.createWorker('por',1,{workerPath:B+'worker.min.js',corePath:B+'tesseract-core-simd-lstm.wasm.js',langPath:B.replace(/\/$/,''),gzip:true,cacheMethod:'none',workerBlobURL:false});
+  try{const canvas=document.createElement('canvas');canvas.width=620*S;canvas.height=130*S;const ctx=canvas.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.fillStyle='#000';ctx.font=`${7*S}px Arial`;
+   const grade=Array.from({length:5},(_,r)=>Array.from({length:8},(_,c)=>((r*7919+c*104729)%90000+1000+((r*31+c*17)%100)/100)));
+   grade.forEach((vals,r)=>{const y=(30+r*18)*S;ctx.textAlign='left';ctx.fillText('Rubrica '+'ABCDE'[r],10*S,y);ctx.textAlign='right';vals.forEach((v,c)=>ctx.fillText(v.toLocaleString('pt-BR',{minimumFractionDigits:2}),(150+c*60)*S,y));});
+   await worker.setParameters({tessedit_pageseg_mode:'6',preserve_interword_spaces:'1',user_defined_dpi:'300'});
+   const {data}=await worker.recognize(canvas,{},{blocks:true,text:false});
+   const words=data.blocks.flatMap(b=>b.paragraphs).flatMap(p=>p.lines).flatMap(l=>l.words).map(w=>({text:w.text,...w.bbox}));
+   const lines=wordsToLines(words,S,canvas.height).filter(l=>l.cells.length>=8),txt=v=>v.toFixed(2).replace('.',',');
+   const lost=[[0,2],[1,7],[3,0],[4,5]];
+   assert(lines.length===5&&lost.every(([r,c])=>lines[r].cells.some(x=>x.text===txt(grade[r][c]))),'OCR: quadro de teste lido');
+   for(const [r,c] of lost){const i=lines[r].cells.findIndex(x=>x.text===txt(grade[r][c]));lines[r].cells.splice(i,1);}
+   await fillGaps(worker,canvas,lines,S);
+   assert(lost.every(([r,c])=>lines[r].cells.some(x=>x.text===txt(grade[r][c])&&Math.abs(x.x1-(150+c*60))<=4)),'OCR: células perdidas voltam pela releitura de fillGaps');
+   assert(lines.every((l,r)=>l.cells.filter(x=>/\d,\d{2}$/.test(x.text)).length===8),'OCR: fillGaps não inventa células');
+  }finally{await worker.terminate();}}
  out.textContent=`PASSOU — ${passed} verificações.\nExtração, salário versus horas, CPF duplicado, competências, ausência versus zero, bloqueio, cálculos, exportação 12/24 meses e leitura do PUR em PDF.`;document.body.dataset.result='passed';
 }catch(e){out.textContent=`FALHOU após ${passed} verificações: ${e.stack}`;document.body.dataset.result='failed';}
