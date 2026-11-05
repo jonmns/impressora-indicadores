@@ -1,7 +1,7 @@
 import {categories,NS,openWorkbook,extract,exportWorkbook,missing,calculated,number,month,financialInfo,durationFromText} from './engine.js';
 import {pdfPages,parsePur,pdfNumber} from './pur-pdf.js';
 import {readPurPdf} from './pur-v2.js';
-import {textlessPages,repairNumber,repairHeader,wordsToLines,reconcile,valueColumns} from './pur-ocr.js';
+import {textlessPages,repairNumber,repairHeader,wordsToLines,reconcile,valueColumns,addTitles} from './pur-ocr.js';
 /* PDF mínimo com texto posicionado (Helvetica), para testar a leitura real pelo pdf.js sem documentos privados. */
 function makePdf(pages){
  const objs=[],enc=s=>s.replace(/\\/g,'\\\\').replace(/\(/g,'\\(').replace(/\)/g,'\\)');
@@ -80,6 +80,8 @@ try{
  const gap=repairHeader({cells:[100,140,220,260,300].map((x,i)=>({text:'Mês '+[1,2,4,5,6][i],x0:x,x1:x+28,xc:x+14})),text:''}).cells.map(c=>c.text);assert(gap.length===6&&gap[2]==='Mês 03','OCR: coluna perdida volta pelo espaçamento');
  const tail=repairHeader({cells:[100,140,180,220,['TOTAL',300]].map((x,i)=>Array.isArray(x)?{text:x[0],x0:x[1],x1:x[1]+28}:{text:'Mês '+(i+1),x0:x,x1:x+28,xc:x+14}),text:''}).cells.map(c=>c.text);assert(tail.length===6&&tail[4]==='Mês 05','OCR: última coluna perdida volta pelo Total');
  const cols=valueColumns([1,2,3].map(()=>({cells:[{text:'10,00',x1:100},{text:'20,00',x1:141},{text:'-',x1:180}]})));assert(cols.join()==='100,141,180','OCR: colunas pela borda direita');
+ const tabela=wordsToLines([{text:'Rubricas',x0:100,y0:200,x1:160,y1:210},{text:'1.000,00',x0:200,y0:200,x1:240,y1:210}],1,800),esparsa=wordsToLines([{text:'Para:',x0:100,y0:150,x1:140,y1:165},{text:'Rubricas',x0:100,y0:200,x1:160,y1:210},{text:'1.234,00',x0:300,y0:300,x1:340,y1:310}],1,800);
+ const titulos=addTitles(tabela,esparsa).map(l=>l.text);assert(titulos.join('|')==='Para:|Rubricas 1000,00','OCR: título solto recuperado da leitura esparsa, sem duplicar linhas nem trazer números');
  const stamp=Array.from({length:6},()=>[{text:'Assinado digitalmente por Fulano'}]);stamp[4]=[...stamp[4],{text:'x'.repeat(200)}];assert(textlessPages(stamp).join()==='0,1,2,3,5','OCR: carimbo repetido não conta como texto');
  assert(wordsToLines([{text:'Para:',x0:100,y0:100,x1:150,y1:120}],1,800)[0].text==='Para:','OCR: palavras viram linhas');
  const info=financialInfo(fin);assert(info.project==='Projeto sintético'&&info.start===month(46266)&&info.lastClosed===month(46266),'financeiro: projeto, início e última competência realizada');

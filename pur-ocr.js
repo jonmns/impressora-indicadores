@@ -167,6 +167,14 @@ async function fillGaps(worker,canvas,lines,scale){
  await worker.setParameters({tessedit_char_whitelist:''});
 }
 
+/* A leitura em bloco único (psm 6) às vezes ignora títulos soltos acima do quadro, como "De:" e "Para:".
+ * Uma leitura esparsa da mesma página devolve essas linhas; entram só as curtas, sem números e em altura ainda vazia. */
+export function addTitles(lines,sparse){
+ const free=s=>!lines.some(l=>Math.abs(l.y-s.y)<=Math.max(l.h||0,s.h||0)*.8);
+ const extra=sparse.filter(s=>s.text.length<=40&&/\p{L}{2}/u.test(s.text)&&!s.cells.some(c=>numeric(c.text))&&free(s));
+ return extra.length?[...lines,...extra].sort((a,b)=>b.y-a.y):lines;
+}
+
 /* Quadro mensal: cabeçalho com meses, título de cronograma ou linha com muitos valores. A passada rápida nem sempre lê o cabeçalho. */
 const monthly=lines=>lines.some(l=>(l.text.length<40&&/cronograma/.test(norm(l.text)))||(norm(l.text).match(/\bm\S{1,3} ?\d{1,2}\b/g)||[]).length>=4||l.cells.filter(c=>/\d,\d{2}$/.test(c.text)).length>=8);
 
@@ -186,7 +194,8 @@ export async function ocrPages(file,buffer,indices,onProgress=()=>{}){
   await run(indices,async(w,i)=>{const page=await doc.getPage(i+1),r=await fastPass(w,page);rotations[i]=r.rotation;lines[i]=wordsToLines(r.words,FAST,r.height);page.cleanup();});
   const tables=indices.filter(i=>monthly(lines[i]));
   onProgress('Relendo os quadros mensais em alta resolução…');
-  await run(tables,async(w,i)=>{const page=await doc.getPage(i+1),canvas=clean(await render(page,FINE,rotations[i]),FINE),words=await read(w,canvas,6);lines[i]=wordsToLines(words,FINE,canvas.height);await fillGaps(w,canvas,lines[i],FINE);page.cleanup();});
+  await run(tables,async(w,i)=>{const page=await doc.getPage(i+1),canvas=clean(await render(page,FINE,rotations[i]),FINE),words=await read(w,canvas,6);lines[i]=wordsToLines(words,FINE,canvas.height);await fillGaps(w,canvas,lines[i],FINE);
+   const small=clean(await render(page,FAST,rotations[i]),FAST);lines[i]=addTitles(lines[i],wordsToLines(await read(w,small,11),FAST,small.height));page.cleanup();});
   const result={lines,tables,rotations,pages:indices.length};memory.set(key,result);return result;
  }finally{await Promise.allSettled(workers.map(w=>w.terminate()));await doc.destroy();}
 }
