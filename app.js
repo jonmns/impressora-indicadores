@@ -1,4 +1,4 @@
-import {purId,checkIdentity,checkClosing} from './controls.js';
+import {purId,contractPur,checkIdentity,checkClosing} from './controls.js';
 import {categories,inputRows,openWorkbook,extract,missing,calculated,exportWorkbook,referenceText,number,month,financialInfo,durationFromText,planDuration,spreadPlanned,buildChecks,openChecks,answerCheck} from './engine.js';
 import {readPurPdf} from './pur-v2.js';
 const $=id=>document.getElementById(id);let data=null,abort=null,active=categories[0],snapshot='';
@@ -35,13 +35,17 @@ $('analyze').addEventListener('click',async()=>{
  if(isPdf){pdf=await readPurPdf(pur,{start,signal:abort.signal,onProgress:t=>status(t)});reference=pdf.text;duration=pdf.duration;}else{reference=await referenceText(pur);duration=durationFromText(reference)||planDuration(p);}
  if(!duration)throw Error('Não encontrei a quantidade de meses no PUR. Verifique se o PDF tem texto selecionável ou envie a planilha de apoio.');
  if(atRevision!==revision || abort.signal.aborted)throw new DOMException('Cancelado','AbortError');
- const identity=checkIdentity(financialPur,purId(pur.name+' '+reference),$('manualPur').value.trim(),$('identitySource').value);
+ const cited=contractPur(pur.name,reference,financialPur),manualPur=$('manualPur').value.trim();
+ if(!cited.id&&cited.others.length&&!manualPur)throw Error(`O PUR cita mais de um número de projeto (${cited.others.join(', ')}) e não foi possível saber qual é o deste documento. Informe o PUR conferido e a página que comprova, em "Identificação e calendário do PUR".`);
+ const identity=checkIdentity(financialPur,cited.id,manualPur,$('identitySource').value);
  const closed=month($('closed').value)-start+1;
  if(closed<1||closed>duration)throw Error(`A competência de fechamento ${label(month($('closed').value))} está fora do projeto (${label(start)} a ${label(start+duration-1)}, ${duration} meses).`);
  status('Cruzando as competências…');
  data=extract(f,p,{project:info.project,start,duration,closed,pdf});
  data.identity=identity;data.calendar={financialStart:info.start,start,calendarSource};
  data.notices.unshift('Financeiro PUR '+identity.financeiro+' · contrato PUR '+identity.contrato+' · M1 = '+label(start)+'. Confira com o cronograma aprovado.');
+ const otherPurs=cited.others.filter(x=>x!==identity.contrato);
+ if(otherPurs.length)data.notices.push(`O documento também cita ${otherPurs.length===1?'o número':'os números'} ${otherPurs.join(', ')} junto da palavra PUR. Foi usado o PUR ${identity.contrato}. Confira se o documento é deste projeto.`);
  if(pdf?.totals)for(const cat of categories){
    const values=pdf.values[cat]?.[2]||[],total=pdf.totals[cat];
    if(!Number.isFinite(total)||!pdf.sources[cat]?.[2]?.some(s=>s?.includes('(OCR)')))continue;
