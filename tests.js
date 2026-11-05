@@ -1,7 +1,7 @@
 import {categories,NS,openWorkbook,extract,exportWorkbook,missing,calculated,number,month,financialInfo,durationFromText} from './engine.js';
 import {pdfPages,parsePur,pdfNumber} from './pur-pdf.js';
-import {readPurPdf} from './pur-v2.js';
-import {textlessPages,repairNumber,repairHeader,wordsToLines,reconcile,valueColumns} from './pur-ocr.js';
+import {readPurPdf,reviewOcr,checkSubtotals,marker,consolidatedReview} from './pur-v2.js';
+import {textlessPages,repairNumber,repairHeader,wordsToLines,reconcile,valueColumns,addTitles,fillGaps,clean,skewAngle} from './pur-ocr.js';
 /* PDF mínimo com texto posicionado (Helvetica), para testar a leitura real pelo pdf.js sem documentos privados. */
 function makePdf(pages){
  const objs=[],enc=s=>s.replace(/\\/g,'\\\\').replace(/\(/g,'\\(').replace(/\)/g,'\\)');
@@ -72,7 +72,7 @@ try{
  const gantt=Array.from({length:8},(_,i)=>({x:200+i*50,y:540,text:'Mês '+(i+1)})),fisico=makePdf([[{x:30,y:540,text:'Macro atividade'},...gantt],[{x:30,y:540,text:'Rubrica'},...gantt.slice(0,6),{x:30,y:525,text:'V - Materiais de consumo'},...gantt.slice(0,6).map(g=>({x:g.x,y:525,text:'7,50'}))]]);
  const longo=await readPurPdf(new File([fisico],'PUR_fisico.pdf',{type:'application/pdf'}),{start:month('2026-09')});assert(longo.duration===6&&longo.notices.some(n=>n.includes('quadro financeiro')),'PDF: duração vem do quadro financeiro');
  assert(repairNumber('75.367.96')==='75367,96'&&repairNumber('75,367,96')==='75367,96'&&repairNumber('3 7l0,16')==='3710,16'&&repairNumber('—')==='-'&&repairNumber('160')==='160'&&repairNumber('Total')==='Total','OCR: números corrigidos');
- assert(repairNumber('1613148')==='16131,48'&&repairNumber('8632/75')==='8632,75'&&repairNumber('31.497,/6')==='31497,76'&&repairNumber('—.75.36/,96')==='75367,96'&&repairNumber('01/2026')==='01/2026'&&repairNumber('consumo;')==='consumo;','OCR: separador perdido e ruído');
+ assert(repairNumber('1613148')==='16131,48'&&repairNumber('8632/75')==='8632,75'&&repairNumber('31.497,/6')==='31497,76'&&repairNumber('—.75.36/,96')==='75367,96'&&repairNumber('01/2026')==='01/2026'&&repairNumber('consumo;')==='consumo;'&&repairNumber('“1005180')==='10051,80','OCR: separador perdido e ruído');
  const rec=reconcile([100,795367.96,50],75517.96);assert(rec.ok&&rec.fixed.m===1&&rec.fixed.want===75367.96,'OCR: dígito a mais corrigido pela soma');assert(reconcile([100,200],300).ok&&!reconcile([100,200],900).ok,'OCR: soma confere ou avisa');assert(reconcile(Array(15).fill(3710.16),55652.43).ok&&!reconcile(Array(15).fill(3710.16),55652.43).fixed,'OCR: centavos de arredondamento não são erro');const round=reconcile([47476.4,795367.96,68690.24],191534.62);assert(round.ok&&round.fixed.m===1&&round.fixed.want===75367.96,'OCR: dígito a mais com arredondamento');
  assert(wordsToLines([{text:'3.839,16',x0:100,y0:100,x1:140,y1:110},{text:'3.720,16',x0:141,y0:100,x1:180,y1:110}],1,800)[0].cells.length===2,'OCR: números vizinhos não se juntam');
  const headCells=[['Rubrica',10],['Mês O1',100],['Més 02',140],['Mês 08',180],['Mês',220],['04',235],['Mês 05',260],['Mês 07',300],['TOTAL',340]].map(([text,x])=>({text,x0:x,x1:x+(text.length>3?28:10),xc:x+14}));
@@ -80,11 +80,72 @@ try{
  const gap=repairHeader({cells:[100,140,220,260,300].map((x,i)=>({text:'Mês '+[1,2,4,5,6][i],x0:x,x1:x+28,xc:x+14})),text:''}).cells.map(c=>c.text);assert(gap.length===6&&gap[2]==='Mês 03','OCR: coluna perdida volta pelo espaçamento');
  const tail=repairHeader({cells:[100,140,180,220,['TOTAL',300]].map((x,i)=>Array.isArray(x)?{text:x[0],x0:x[1],x1:x[1]+28}:{text:'Mês '+(i+1),x0:x,x1:x+28,xc:x+14}),text:''}).cells.map(c=>c.text);assert(tail.length===6&&tail[4]==='Mês 05','OCR: última coluna perdida volta pelo Total');
  const cols=valueColumns([1,2,3].map(()=>({cells:[{text:'10,00',x1:100},{text:'20,00',x1:141},{text:'-',x1:180}]})));assert(cols.join()==='100,141,180','OCR: colunas pela borda direita');
+ const tabela=wordsToLines([{text:'Rubricas',x0:100,y0:200,x1:160,y1:210},{text:'1.000,00',x0:200,y0:200,x1:240,y1:210}],1,800),esparsa=wordsToLines([{text:'Para:',x0:100,y0:150,x1:140,y1:165},{text:'Rubricas',x0:100,y0:200,x1:160,y1:210},{text:'1.234,00',x0:300,y0:300,x1:340,y1:310}],1,800);
+ const titulos=addTitles(tabela,esparsa).map(l=>l.text);assert(titulos.join('|')==='Para:|Rubricas 1000,00','OCR: título solto recuperado da leitura esparsa, sem duplicar linhas nem trazer números');
  const stamp=Array.from({length:6},()=>[{text:'Assinado digitalmente por Fulano'}]);stamp[4]=[...stamp[4],{text:'x'.repeat(200)}];assert(textlessPages(stamp).join()==='0,1,2,3,5','OCR: carimbo repetido não conta como texto');
+ const curto=[[{text:'Este documento foi assinado digitalmente por Fulano'},{text:'Para verificar as assinaturas va ao site http://assinaturas.exemplo.br e utilize o codigo AAAA'}],[{text:'Este documento foi assinado digitalmente por Fulano'},{text:'Para verificar as assinaturas va ao site http://assinaturas.exemplo.br e utilize o codigo AAAA'}]];assert(textlessPages(curto).join()==='0,1'&&textlessPages([curto[0]]).join()==='0','OCR: carimbo em PDF de uma ou duas páginas não conta como texto');
  assert(wordsToLines([{text:'Para:',x0:100,y0:100,x1:150,y1:120}],1,800)[0].text==='Para:','OCR: palavras viram linhas');
+ const lido=(linhas,totais)=>({values:Object.fromEntries(categories.map(c=>[c,{2:[...(linhas[c]||[0,0])]}])),sources:Object.fromEntries(categories.map(c=>[c,{2:(linhas[c]||[0,0]).map(()=>'scan.pdf, p. 1')}])),totals:totais,notices:[],duration:(linhas.RHD||[0,0]).length});
+ const totalErrado=lido({RHD:[100,200]},{RHD:3000});reviewOcr(totalErrado,'scan.pdf',1);
+ assert(totalErrado.values.RHD[2].join()==='100,200'&&totalErrado.notices.some(n=>n.includes('RHD')&&n.includes('dígito do total')),'OCR: total lido com dígito errado gera aviso e mantém os meses');
+ const vazias=lido({RHD:[100,null,200],STT:[null,50,null]},{RHD:300,STT:50});reviewOcr(vazias,'scan.pdf',1);const avisoVazias=vazias.notices.find(n=>n.includes('sem leitura'))||'';
+ assert(vazias.values.RHD[2][1]===0&&vazias.values.STT[2].join()==='0,50,0'&&avisoVazias.includes('3 células')&&avisoVazias.includes('RHD (mês 2)')&&avisoVazias.includes('STT (meses 1, 3)'),'OCR: células sem leitura viram zero com aviso geral de quantas e onde');
+ const linha=(y,label,vals)=>[{x:30,y,text:label},...vals.map((v,i)=>({x:200+i*60,y,text:v}))];
+ const sete=['I - Programas de computador','II - Laboratório','III a - Recursos humanos diretos','III b - Recursos humanos indiretos','V - Materiais de consumo','VIII - Serviços técnicos de terceiros','IX - Outros correlatos'];
+ const quadro=[...linha(540,'Rubricas',['Mês 1','Mês 2','Mês 3','Mês 4','TOTAL']),...sete.flatMap((l,i)=>linha(525-i*15,l,['100,00','100,00','100,00','100,00','400,00'])),
+  ...linha(420,'VI - Viagens',['50,00','-','-','-','50,00']),...linha(405,'VII - Treinamento',['-','-','25,00','-','25,00']),...linha(390,'8 Sub-T otal',['750,00','700,00','725,00','790,00','2.965,00'])];
+ const sub=parsePur(await pdfPages(makePdf([quadro])),{duration:4,start,file:'sub.pdf'});
+ assert(sub.subtotals.join()==='750,700,725,790'&&sub.others.Viagens.join()==='50,0,0,0'&&sub.others.Treinamento[2]===25&&sub.otherTotals.Viagens===50,'PDF: Sub-Total e rubricas fora do relatório lidos por mês');
+ const conf=checkSubtotals(sub);const avisoSub=sub.notices.find(n=>n.includes('Sub-Total'))||'';
+ assert(conf.checked===4&&conf.bad===1&&avisoSub.includes('mês 4 (soma 700,00, Sub-Total 790,00)')&&!avisoSub.includes('mês 1 ')&&sub.values.RHD[2][3]===100,'PDF: mês divergente do Sub-Total vira aviso sem alterar valores');
+ assert(marker('de')===null&&marker('para')===null&&marker('DE:')==='DE'&&marker('Para:')==='PARA'&&marker('PARA')==='PARA'&&marker('Situação anterior')==='DE'&&marker('Quadro de')===null&&marker('anterior.')===null&&marker('QUADRO ANTERIOR')==='DE'&&marker('Leia-se')==='PARA'&&marker('Para')==='PARA'&&marker('De')==='DE','adendo: "de" solto no texto corrido não é marcador DE');
+ const aditivo=(ultimo,sub)=>makePdf([[{x:30,y:560,text:'Termo Aditivo ao convenio: o plano de utilizacao de recursos passa a ser o abaixo.'},...linha(540,'Rubricas',['Mês 1','Mês 2','Mês 3','Mês 4','TOTAL']),
+  ...sete.map((l,i)=>linha(525-i*15,l,['100,00','100,00','100,00',i===6?ultimo:'100,00','400,00'])).flat(),...linha(420,'VI - Viagens',['-','-','-','-','-']),...linha(405,'Sub-Total',['700,00','700,00','700,00',sub,'2.800,00'])]]);
+ const fecha=await readPurPdf(new File([aditivo('100,00','700,00')],'aditivo.pdf',{type:'application/pdf'}),{start});
+ assert(fecha.duration===4&&fecha.values.Correlatos[2][3]===100&&fecha.notices.some(n=>n.startsWith('Plano lido de Termo Aditivo sem DE/PARA')),'aditivo sem DE/PARA que fecha é lido como plano, com aviso');
+ const comDe=makePdf([[{x:30,y:560,text:'Termo Aditivo ao convenio.'},{x:30,y:550,text:'DE'},...linha(540,'Rubricas',['Mês 1','Mês 2','Mês 3','Mês 4','TOTAL']),...sete.map((l,i)=>linha(525-i*15,l,['100,00','100,00','100,00','100,00','400,00'])).flat(),...linha(405,'Sub-Total',['700,00','700,00','700,00','700,00','2.800,00'])]]);
+ let deSemPara='';try{await readPurPdf(new File([comDe],'aditivo.pdf',{type:'application/pdf'}),{start});}catch(e){deSemPara=e.message;}assert(deSemPara.includes('DE, mas sem quadro PARA'),'DE antes de quadro de meses, sem PARA, continua bloqueado');
+ const solto=makePdf([[{x:30,y:560,text:'Termo Aditivo ao convenio.'},...linha(540,'Rubricas',['Mês 1','Mês 2','Mês 3','Mês 4','TOTAL']),...sete.map((l,i)=>linha(525-i*15,l,['100,00','100,00','100,00','100,00','400,00'])).flat(),...linha(405,'Sub-Total',['700,00','700,00','700,00','700,00','2.800,00'])],
+  [{x:30,y:500,text:'Equipe tecnica'},{x:30,y:480,text:'DE'},{x:30,y:460,text:'Engenheiro de software'}]]);
+ const lidoSolto=await readPurPdf(new File([solto],'aditivo.pdf',{type:'application/pdf'}),{start});assert(lidoSolto.duration===4&&lidoSolto.notices.some(n=>n.startsWith('Plano lido de Termo Aditivo')),'DE solto, sem quadro de meses depois, não bloqueia o aditivo');
+ {const r=(v,t)=>({values:Object.fromEntries(categories.map(c=>[c,{2:c==='RHD'?[...v]:[1,1]}])),sources:Object.fromEntries(categories.map(c=>[c,{2:['p. 1','p. 1']}])),totals:Object.fromEntries(categories.map(c=>[c,c==='RHD'?t:2])),notices:[]});
+  const ok=r([100,200.06],300);assert(consolidatedReview(ok,true)===''&&ok.values.RHD[2][1]===200.06&&ok.notices.some(n=>n.includes('diferença de centavos')&&n.includes('RHD')),'aditivo digitalizado: diferença de centavos aceita com aviso');
+  const ruim=r([100,250],300);assert(consolidatedReview(ruim,true)===''&&ruim.values.RHD[2].every(v=>v===null)&&ruim.sources.RHD[2][1].includes('250,00 não confirmado')&&ruim.notices.some(n=>n.includes('RHD')&&n.includes('pendente')),'aditivo: rubrica que não fecha fica pendente, com o valor lido na fonte');
+  const furo=r([100,null],300);consolidatedReview(furo,true);assert(furo.values.RHD[2].every(v=>v===null),'aditivo: rubrica com mês sem leitura fica pendente');
+  const sem=r([100,200],300);for(const c of categories)if(c!=='RHD')sem.totals[c]=99;assert(consolidatedReview(sem,true).includes('rubrica fecha'),'aditivo: menos de três rubricas que fecham continua bloqueado');}
+ const pendente=await readPurPdf(new File([aditivo('190,00','790,00')],'aditivo.pdf',{type:'application/pdf'}),{start});
+ assert(pendente.values.Correlatos[2].every(v=>v===null)&&pendente.values.RHD[2][3]===100&&pendente.notices.some(n=>n.includes('Correlatos')&&n.includes('pendente')),'aditivo: rubrica que não fecha fica pendente e o resto é lido');
+ let barrado='';try{await readPurPdf(new File([aditivo('100,00','790,00')],'aditivo.pdf',{type:'application/pdf'}),{start});}catch(e){barrado=e.message;}
+ assert(barrado.includes('Sub-Total diverge'),'aditivo sem DE/PARA com Sub-Total divergente continua bloqueado');
+ {const dupPos=sheet('Posição Financeira',{...posCells,O7:46267}),dupFin={sheets:{...fin.sheets,pos:dupPos}};
+  const ok=extract(dupFin,null,{project:'Sintético',start,duration:2,closed:1});assert(ok.notices.some(n=>n.includes('coluna O repete')),'planilha: data repetida depois do fim do projeto é ignorada com aviso');
+  let dup='';try{extract(dupFin,null,{project:'Sintético',start,duration:3,closed:1});}catch(e){dup=e.message;}assert(dup.includes('Competência duplicada'),'planilha: competência duplicada dentro do projeto continua bloqueando');}
  const info=financialInfo(fin);assert(info.project==='Projeto sintético'&&info.start===month(46266)&&info.lastClosed===month(46266),'financeiro: projeto, início e última competência realizada');
  assert(durationFromText('Prazo de execução: 15 (quinze) meses')===15&&durationFromText('A duração do projeto é de 12 meses')===12&&durationFromText('Mês 1 Mês 2')===null&&durationFromText('prazo de 30 dias')===null,'duração lida do texto do PUR');
  const auto=parsePur(pages,{start,file:'PUR_sintetico.pdf'});assert(auto.duration===12&&auto.values.Equipamentos[2].length===12,'duração deduzida do cronograma quando o texto não informa');
  const withText=parsePur([[...pages[0],{y:0,cells:[{x0:0,x1:10,xc:5,text:'Prazo de execução: 9 meses'}],text:'Prazo de execução: 9 meses'}],pages[1]],{start,file:'x.pdf'});assert(withText.duration===9&&withText.values.RHD[15].length===9,'duração do texto prevalece e corta os meses excedentes');
+ {const c=document.createElement('canvas');c.width=900;c.height=600;const x=c.getContext('2d');x.fillStyle='rgb(232,232,232)';x.fillRect(0,0,900,600);x.fillStyle='rgb(150,150,150)';x.font='30px Arial';for(let r=0;r<8;r++)x.fillText('12.345,67  89.012,34  56.789,01',40,60+r*60);
+  let ink=0;clean(c,1);const d=c.getContext('2d').getImageData(0,0,900,600).data;for(let i=0;i<d.length;i+=4)if(d[i]<100)ink++;
+  assert(ink>2000&&d[0]===255,'OCR: digitalização com pouco contraste mantém o texto escuro e o fundo branco');
+  const t=document.createElement('canvas');t.width=1600;t.height=1000;const y=t.getContext('2d');y.fillStyle='#fff';y.fillRect(0,0,1600,1000);y.translate(800,500);y.rotate(1.5*Math.PI/180);y.fillStyle='#000';y.font='28px Arial';for(let r=-6;r<=6;r++)y.fillText('Rubrica 1.234,56 7.890,12 3.456,78 9.012,34 5.678,90 1.234,56',-700,r*60);
+  const a=skewAngle(t)*180/Math.PI;assert(Math.abs(a+1.5)<=.25,'OCR: inclinação de 1,5 grau detectada, com o sinal que a desfaz');
+  const reto=document.createElement('canvas');reto.width=1600;reto.height=1000;const z=reto.getContext('2d');z.fillStyle='#fff';z.fillRect(0,0,1600,1000);z.fillStyle='#000';z.font='28px Arial';for(let r=1;r<14;r++)z.fillText('Rubrica 1.234,56 7.890,12 3.456,78 9.012,34',100,r*70);assert(skewAngle(reto)===0,'OCR: página reta não é girada');}
+ // OCR real: quadro desenhado no canvas, lido pelo Tesseract; células apagadas da leitura voltam pela releitura de fillGaps.
+ {const {default:Tesseract}=await import('./vendor/tesseract.esm.min.js'),B=new URL('./vendor/',location.href).href,S=5;
+  const worker=await Tesseract.createWorker('por',1,{workerPath:B+'worker.min.js',corePath:B+'tesseract-core-simd-lstm.wasm.js',langPath:B.replace(/\/$/,''),gzip:true,cacheMethod:'none',workerBlobURL:false});
+  try{const canvas=document.createElement('canvas');canvas.width=620*S;canvas.height=130*S;const ctx=canvas.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.fillStyle='#000';ctx.font=`${7*S}px Arial`;
+   const grade=Array.from({length:5},(_,r)=>Array.from({length:8},(_,c)=>((r*7919+c*104729)%90000+1000+((r*31+c*17)%100)/100)));
+   grade.forEach((vals,r)=>{const y=(30+r*18)*S;ctx.textAlign='left';ctx.fillText('Rubrica '+'ABCDE'[r],10*S,y);ctx.textAlign='right';vals.forEach((v,c)=>ctx.fillText(v.toLocaleString('pt-BR',{minimumFractionDigits:2}),(150+c*60)*S,y));});
+   await worker.setParameters({tessedit_pageseg_mode:'6',preserve_interword_spaces:'1',user_defined_dpi:'300'});
+   const {data}=await worker.recognize(canvas,{},{blocks:true,text:false});
+   const words=data.blocks.flatMap(b=>b.paragraphs).flatMap(p=>p.lines).flatMap(l=>l.words).map(w=>({text:w.text,...w.bbox}));
+   const lines=wordsToLines(words,S,canvas.height).filter(l=>l.cells.length>=8),txt=v=>v.toFixed(2).replace('.',',');
+   const lost=[[0,2],[1,7],[3,0],[4,5]];
+   assert(lines.length===5&&lost.every(([r,c])=>lines[r].cells.some(x=>x.text===txt(grade[r][c]))),'OCR: quadro de teste lido');
+   for(const [r,c] of lost){const i=lines[r].cells.findIndex(x=>x.text===txt(grade[r][c]));lines[r].cells.splice(i,1);}
+   await fillGaps(worker,canvas,lines,S);
+   assert(lost.every(([r,c])=>lines[r].cells.some(x=>x.text===txt(grade[r][c])&&Math.abs(x.x1-(150+c*60))<=4)),'OCR: células perdidas voltam pela releitura de fillGaps');
+   assert(lines.every((l,r)=>l.cells.filter(x=>/\d,\d{2}$/.test(x.text)).length===8),'OCR: fillGaps não inventa células');
+  }finally{await worker.terminate();}}
  out.textContent=`PASSOU — ${passed} verificações.\nExtração, salário versus horas, CPF duplicado, competências, ausência versus zero, bloqueio, cálculos, exportação 12/24 meses e leitura do PUR em PDF.`;document.body.dataset.result='passed';
 }catch(e){out.textContent=`FALHOU após ${passed} verificações: ${e.stack}`;document.body.dataset.result='failed';}
