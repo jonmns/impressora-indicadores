@@ -12,13 +12,14 @@ Repositório: https://github.com/jonmns/impressora-indicadores
 - Nenhuma dependência vem de CDN durante o uso. Bibliotecas ficam em `vendor/`.
 - O documento não sai da máquina do usuário.
 - Em dúvida entre valor errado e campo pendente, deixe pendente. Valor de OCR nunca passa sem aviso.
+- Toda leitura incerta vira confirmação (`buildChecks` em `engine.js`): avisos da extração, menos os informativos, e os valores de OCR por rubrica. O Excel só é gerado com todas respondidas (Confirmado ou Corrigido na tabela), e as respostas vão para a memória de preenchimento.
 - Responda em português, em prosa direta.
 
 ## Como testar
 
 Sirva a pasta com `python -m http.server 8931`. Não abra `index.html` por `file://`.
 
-- `tests.html`: testes no navegador (88 verificações). Inclui OCR real com o Tesseract de `vendor/`: um quadro desenhado em canvas, com células apagadas da leitura para exercitar `fillGaps`.
+- `tests.html`: testes no navegador (96 verificações). Inclui OCR real com o Tesseract de `vendor/`: um quadro desenhado em canvas, com células apagadas da leitura para exercitar `fillGaps`.
 - `dev/run-tests.js` ou `dev/run_tests.py`: (também rodam no CI, `.github/workflows/tests.yml`) rodam `tests.html` no Chromium via Playwright. Uso: `python dev/run_tests.py http://127.0.0.1:8931`.
 - `dev/make_fixtures.py` e `dev/make_scan.py`: geram PDFs e planilha sintéticos. Dependências: pillow, playwright, reportlab, openpyxl.
 - `dev/run.js` ou `dev/run.py`: fluxo completo com PDFs de texto.

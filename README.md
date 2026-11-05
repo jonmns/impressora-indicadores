@@ -23,7 +23,7 @@ Opcionalmente, selecione a planilha de apoio do PUR (.xlsx/.xlsm) para completar
 - RH realizado: reconhece cabeçalhos Data, Nome do Funcionário, CPF e Horas Trabalhadas. Conta pessoas distintas por CPF, usando nome quando o CPF estiver ausente. Soma horas por competência, não por data de pagamento.
 - PUR em .docx: texto para consulta, sem extração do planejado.
 - Fórmulas de origem não são executadas: resultados salvos ausentes geram pendências. VBA e vínculos externos não são executados.
-- Denominador zero conserva #DIV/0! do modelo. Campos pendentes bloqueiam exportação; não são convertidos em zero. Meses futuros ficam sem realizado.
+- Denominador zero conserva #DIV/0! do modelo. Campos pendentes bloqueiam exportação; não são convertidos em zero. Cada ponto de dúvida (aviso da extração ou valores lidos por OCR) aparece como confirmação, que precisa ser respondida com Confirmado ou Corrigido na tabela antes de gerar o Excel; as respostas, com data e hora, ficam na memória de preenchimento. Meses futuros ficam sem realizado.
 - A seleção do último adendo aprovado e a correspondência entre os projetos dependem da conferência humana. Não há classificador automático de aprovação documental.
 - Não produz conclusões automáticas sobre desvio ou ações corretivas do relatório técnico.
 

@@ -138,6 +138,26 @@ export function spreadPlanned(data,cat,row,total){
   sources[m]=row===10?`Informado na conferência: ${total} profissionais previstos em todos os meses`:`Média informada na conferência: ${total} horas previstas no PUR ÷ ${n} meses${m===n-1?' (último mês absorve o arredondamento)':''}`;}
  return values;
 }
+/* Confirmações: todo ponto em que a leitura não é 100% segura vira uma pergunta que o usuário responde antes de exportar.
+ * Entram os avisos da extração (exceto os informativos) e, por rubrica, os valores lidos por OCR. */
+const informative=/^(Início \d|PUR em Word serve só para consulta)/;
+export function buildChecks(data){
+ const checks=data.notices.filter(n=>!informative.test(n)).map((text,i)=>({id:`aviso-${i+1}`,kind:'aviso',text,answer:null}));
+ for(const cat of categories){
+  const cells=[];
+  for(const [row,src] of Object.entries(data.sources[cat]))src.forEach((s,m)=>{if(typeof s==='string'&&s.endsWith('(OCR)')&&data.values[cat][row][m]!==null)cells.push(`${inputRows[row]} M${m+1}`);});
+  if(cells.length)checks.push({id:`ocr-${cat}`,kind:'ocr',cat,text:`${cat}: ${cells.length} ${cells.length===1?'valor lido':'valores lidos'} por OCR (${cells.slice(0,6).join(', ')}${cells.length>6?'…':''}). Confira com o PDF.`,answer:null});
+ }
+ return checks;
+}
+export const openChecks=data=>(data.checks||[]).filter(c=>!c.answer).length;
+/* Resposta a uma confirmação. "corrigido" exige que algum valor tenha sido ajustado na conferência depois da extração. */
+export function answerCheck(data,id,answer){
+ const c=(data.checks||[]).find(c=>c.id===id);if(!c)throw Error('Confirmação não encontrada.');
+ if(!['confirmado','corrigido',null].includes(answer))throw Error('Resposta inválida.');
+ if(answer==='corrigido'&&!categories.some(cat=>Object.values(data.sources[cat]).some(r=>r.some(s=>typeof s==='string'&&/^(Ajuste manual|Informado na conferência|Média informada na conferência)/.test(s)))))throw Error('Nenhum valor foi corrigido na tabela ainda. Corrija o valor e depois marque como corrigido.');
+ c.answer=answer;c.answeredAt=answer?new Date().toISOString():null;return c;
+}
 export function missing(data){let n=0;for(const cat of categories)for(const [row,values]of Object.entries(data.values[cat]))for(let m=0;m<values.length;m++){if([3,11,16].includes(+row)&&m>=data.closed)continue;if(values[m]===null)n++;}return n;}
 export function calculated(data,cat,row,m){const v=data.values[cat];if(v[row])return v[row][m];let a,b;if(row===4)a=2;if(row===5)a=3;if(row===17)a=15;if(row===18)a=16;if(a){const values=v[a].slice(0,m+1);if(values.some(x=>x===null))return null;return values.reduce((x,y)=>x+y,0);}if(row===6){a=calculated(data,cat,5,m);b=calculated(data,cat,4,m);}if(row===19){a=calculated(data,cat,18,m);b=calculated(data,cat,17,m);}return a===null||b===null?null:b===0?'#DIV/0!':a/b;}
 export async function referenceText(file){const zip=await JSZip.loadAsync(await file.arrayBuffer());const body=await zip.file('word/document.xml')?.async('string');if(!body)throw Error('Documento Word inválido.');return tags(xml(body),'p').map(p=>tags(p,'t').map(t=>t.textContent).join('')).join('\n').slice(0,200000);}
