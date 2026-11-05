@@ -8,7 +8,8 @@ const norm=s=>String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase(
 export function textlessPages(pages,minChars=40){
  const count=new Map();
  for(const lines of pages)for(const t of new Set(lines.map(l=>l.text)))count.set(t,(count.get(t)||0)+1);
- const limit=Math.max(3,pages.length*.5),stamp=t=>count.get(t)>=limit||/assinad[oa]\s+(digital|eletronic)/i.test(norm(t));
+ // Com duas páginas, uma linha nas duas já é carimbo. Numa página só, vale o texto típico do carimbo.
+ const limit=Math.max(2,pages.length*.5),stamp=t=>count.get(t)>=limit||/assinad[oa]\s+(digital|eletronic)|verificar\s+(as\s+)?assinaturas|codigo\s+(de\s+)?verificacao/i.test(norm(t));
  return pages.flatMap((lines,i)=>lines.filter(l=>!stamp(l.text)).map(l=>l.text).join('').replace(/\s/g,'').length<minChars?[i]:[]);
 }
 

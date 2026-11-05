@@ -1,11 +1,11 @@
 # Fluxo completo com um PUR digitalizado sintético, comparando com os valores verdadeiros. Equivalente em Python de ocr.js.
 # Uso: python dev/ocr.py http://127.0.0.1:8931 PASTA_FIXTURES [arquivo.pdf] [chave_da_verdade]
-# A verdade fica em <arquivo>.json (ou scan_truth.json para Adendo_scan.pdf); a chave padrão é "para".
+# A verdade fica em <arquivo>.json (chave "pur") ou, para Adendo_scan.pdf, em scan_truth.json (chave "para").
 import sys, json, os, time
 from playwright.sync_api import sync_playwright
 base, fx = sys.argv[1:3]
 pdf = sys.argv[3] if len(sys.argv) > 3 else 'Adendo_scan.pdf'
-key = sys.argv[4] if len(sys.argv) > 4 else 'para'
+key = sys.argv[4] if len(sys.argv) > 4 else ('para' if pdf == 'Adendo_scan.pdf' else 'pur')
 tf = os.path.join(fx, 'scan_truth.json' if pdf == 'Adendo_scan.pdf' else pdf[:-4] + '.json')
 truth = json.load(open(tf))[key]
 with sync_playwright() as p:
