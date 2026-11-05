@@ -1,4 +1,4 @@
-import {categories,NS,openWorkbook,extract,exportWorkbook,missing,calculated,number,month,financialInfo,durationFromText} from './engine.js';
+import {categories,NS,openWorkbook,extract,exportWorkbook,missing,calculated,number,month,financialInfo,durationFromText,spreadPlanned} from './engine.js';
 import {pdfPages,parsePur,pdfNumber} from './pur-pdf.js';
 import {readPurPdf} from './pur-v2.js';
 import {textlessPages,repairNumber,repairHeader,wordsToLines,reconcile,valueColumns} from './pur-ocr.js';
@@ -47,10 +47,15 @@ try{
  const start=month(46266),data=extract(fin,plan,{project:'Sintético',start,duration:12,closed:1});
  assert(data.values.RHD[16][0]===15,'horas vêm de J, não salário K');assert(data.values.RHD[11][0]===1,'CPF duplicado não duplica pessoas');assert(data.values.RHD[3][1]===null,'outubro projetado fica vazio');assert(data.values.Equipamentos[3][0]===10,'rubricas mapeadas');
  assert(missing(data)>0,'RH planejado ausente precisa completar');
+ const pend=missing(data);spreadPlanned(data,'RHD',15,10285);spreadPlanned(data,'RHD',10,13);
+ assert(missing(data)===pend-24,'média preenche horas e profissionais previstos');
+ assert(data.values.RHD[15][0]===857.08&&data.values.RHD[15][11]===857.12&&Math.round(data.values.RHD[15].reduce((a,b)=>a+b,0)*100)===1028500,'média de horas fecha com o total');
+ assert(data.values.RHD[10].every(v=>v===13)&&/Média informada/.test(data.sources.RHD[15][0]),'profissionais repetidos e fonte registrada');
+ let rejected=0;for(const args of [['RHD',10,2.5],['RHD',15,-1],['Equipamentos',15,10]])try{spreadPlanned(data,...args);}catch{rejected++;}assert(rejected===3,'distribuição recusa fração, negativo e rubrica sem RH');
  let blocked=false;try{await exportWorkbook(data);}catch{blocked=true;}assert(blocked,'ausência bloqueia exportação');
  for(const cat of categories)for(const [r,v]of Object.entries(data.values[cat]))for(let m=0;m<v.length;m++)if(v[m]===null&&(![3,11,16].includes(+r)||m<data.closed))v[m]=0;
  assert(missing(data)===0,'zero explícito é válido');assert(calculated(data,'Equipamentos',6,0)===.1,'percentual acumulado');
- const blob=await exportWorkbook(data),book=await openWorkbook(await blob.arrayBuffer());assert(book.sheets.RHD.get('B16')===15,'exportação preserva horas');assert(book.sheets.RHD.get('C3')===null,'exportação sem realizado futuro');assert(book.sheets.Equipamentos.cells.B4.formula==='B2','fórmula preservada');assert(book.sheets.Equipamentos.get('B6')===.1,'cache percentual calculado');assert(book.sheets['Laboratório'].get('M2')===101,'último mês planejado');
+ const blob=await exportWorkbook(data),book=await openWorkbook(await blob.arrayBuffer());assert(book.sheets.RHD.get('B16')===15,'exportação preserva horas');assert(book.sheets.RHD.get('B15')===857.08&&book.sheets.RHD.get('M15')===857.12&&book.sheets.RHD.get('B10')===13,'exportação leva a média de RH');assert(book.sheets.RHD.get('C3')===null,'exportação sem realizado futuro');assert(book.sheets.Equipamentos.cells.B4.formula==='B2','fórmula preservada');assert(book.sheets.Equipamentos.get('B6')===.1,'cache percentual calculado');assert(book.sheets['Laboratório'].get('M2')===101,'último mês planejado');
  data.duration=24;for(const cat of categories)for(const [r,v]of Object.entries(data.values[cat]))while(v.length<24)v.push([3,11,16].includes(+r)?null:0);
  const extended=await openWorkbook(await (await exportWorkbook(data)).arrayBuffer());assert(extended.sheets.RHD.get('Y1')==='Mês 24','extensão até 24');assert(extended.sheets.RHD.cells.Y17.formula==='Y15+X17','fórmula mês 24');
  data.values.Equipamentos[2][0]=null;assert(missing(data)===1,'alteração volta a expor pendência');

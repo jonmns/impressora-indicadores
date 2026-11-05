@@ -1,4 +1,4 @@
-import {categories,inputRows,openWorkbook,extract,missing,calculated,exportWorkbook,referenceText,number,month,financialInfo,durationFromText,planDuration} from './engine.js';
+import {categories,inputRows,openWorkbook,extract,missing,calculated,exportWorkbook,referenceText,number,month,financialInfo,durationFromText,planDuration,spreadPlanned} from './engine.js';
 import {readPurPdf} from './pur-v2.js';
 const $=id=>document.getElementById(id);let data=null,active=categories[0],snapshot='';
 const format=(v,pct=false)=>v===null?'Pendente':typeof v==='string'?v:new Intl.NumberFormat('pt-BR',{maximumFractionDigits:2,...(pct?{style:'percent'}:{})}).format(v);
@@ -43,7 +43,16 @@ function render(){
    if(data.values[active][row]){const input=document.createElement('input');input.type='text';input.inputMode='decimal';input.value=v===null?'':String(v).replace('.',',');input.setAttribute('aria-label',`${active}, ${inputRows[row]}, mês ${m+1}`);input.title=data.sources[active][row][m];td.classList.toggle('missing',v===null);input.addEventListener('change',()=>{try{const n=number(input.value);if(n!==null&&n<0)throw Error('Valores negativos exigem conferência na origem.');if([10,11].includes(row)&&n!==null&&!Number.isInteger(n))throw Error('Profissionais deve ser inteiro.');data.values[active][row][m]=n;data.sources[active][row][m]='Ajuste manual na conferência (fonte anterior: '+data.sources[active][row][m]+')';$('reviewed').checked=false;render();}catch(e){status(e.message,true);input.value=v===null?'':String(v).replace('.',',');}});td.append(input);
    }else td.textContent=format(v,[6,19].includes(row));
   }
- }$('grid').replaceChildren(table);updateCounts();
+ }$('grid').replaceChildren(...(['RHD','RHI'].includes(active)?[spreadForm()]:[]),table);updateCounts();
+}
+/* O PUR costuma trazer só o total de horas por função. O usuário informa o total da rubrica e o site distribui a média pelos meses. */
+function spreadForm(){
+ const box=document.createElement('div');box.className='spread';
+ const p=document.createElement('p');p.className='help';p.textContent=`Se o PUR só traz o total de horas, informe o total de ${active} e o número de profissionais previstos. As horas são divididas igualmente pelos ${data.duration} meses e os profissionais se repetem em todos os meses. Substitui os valores previstos desta aba.`;
+ const field=(text,row)=>{const l=document.createElement('label');l.textContent=text;const i=document.createElement('input');i.type='text';i.inputMode='decimal';i.dataset.row=row;l.append(i);return l;};
+ const hours=field('Total de horas previstas no PUR',15),people=field('Profissionais previstos',10),b=document.createElement('button');b.type='button';b.className='secondary';b.textContent='Distribuir nos meses';
+ b.addEventListener('click',()=>{try{const h=number(hours.querySelector('input').value),n=number(people.querySelector('input').value);if(h===null&&n===null)throw Error('Informe o total de horas, os profissionais ou ambos.');if(h!==null)spreadPlanned(data,active,15,h);if(n!==null)spreadPlanned(data,active,10,n);$('reviewed').checked=false;render();status(`${active}: previsto distribuído nos ${data.duration} meses. Confira os valores na tabela.`);}catch(e){status(e.message,true);}});
+ box.append(p,hours,people,b);return box;
 }
 $('reviewed').addEventListener('change',()=>data&&updateCounts());
 function download(blob,name){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),10000);}

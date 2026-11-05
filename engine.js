@@ -110,6 +110,18 @@ function applyPdf(data,pdf){
  if(diverge.length)data.notices.push(`PUR em PDF e planilha de apoio divergem em ${diverge.length} campo(s); foi usado o PDF: ${diverge.slice(0,8).join(', ')}${diverge.length>8?'…':''}.`);
  data.notices.push(...pdf.notices);
 }
+/* Planejado de RH quando o PUR só traz totais: horas = total ÷ meses do projeto; profissionais = mesmo número em todos os meses.
+ * Arredonda em centavos de hora e põe a diferença no último mês, para a soma fechar com o total informado. */
+export function spreadPlanned(data,cat,row,total){
+ if(!['RHD','RHI'].includes(cat)||![10,15].includes(row))throw Error('Distribuição só vale para horas e profissionais previstos de RHD e RHI.');
+ if(typeof total!=='number'||!Number.isFinite(total)||total<0)throw Error('Informe um total válido, zero ou maior.');
+ if(row===10&&!Number.isInteger(total))throw Error('Profissionais deve ser inteiro.');
+ const n=data.duration,values=data.values[cat][row],sources=data.sources[cat][row];
+ const base=row===10?total:Math.floor(total*100/n)/100;
+ for(let m=0;m<n;m++){values[m]=m===n-1&&row===15?Math.round((total-base*(n-1))*100)/100:base;
+  sources[m]=row===10?`Informado na conferência: ${total} profissionais previstos em todos os meses`:`Média informada na conferência: ${total} horas previstas no PUR ÷ ${n} meses${m===n-1?' (último mês absorve o arredondamento)':''}`;}
+ return values;
+}
 export function missing(data){let n=0;for(const cat of categories)for(const [row,values]of Object.entries(data.values[cat]))for(let m=0;m<values.length;m++){if([3,11,16].includes(+row)&&m>=data.closed)continue;if(values[m]===null)n++;}return n;}
 export function calculated(data,cat,row,m){const v=data.values[cat];if(v[row])return v[row][m];let a,b;if(row===4)a=2;if(row===5)a=3;if(row===17)a=15;if(row===18)a=16;if(a){const values=v[a].slice(0,m+1);if(values.some(x=>x===null))return null;return values.reduce((x,y)=>x+y,0);}if(row===6){a=calculated(data,cat,5,m);b=calculated(data,cat,4,m);}if(row===19){a=calculated(data,cat,18,m);b=calculated(data,cat,17,m);}return a===null||b===null?null:b===0?'#DIV/0!':a/b;}
 export async function referenceText(file){const zip=await JSZip.loadAsync(await file.arrayBuffer());const body=await zip.file('word/document.xml')?.async('string');if(!body)throw Error('Documento Word inválido.');return tags(xml(body),'p').map(p=>tags(p,'t').map(t=>t.textContent).join('')).join('\n').slice(0,200000);}
