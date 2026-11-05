@@ -79,12 +79,24 @@ export function extract(fin,plan,options){
   set(data,cat,15,m,missing?null:sum,`${rh.name}!${refs.join(',')}`);set(data,cat,10,m,missing?null:people.size,`${rh.name}: funções distintas com horas > 0; conferir vagas com mesma função`);
  }data.notices.push(`${cat}: profissionais previstos foram contados por função distinta. Confira se existem duas ou mais vagas com o mesmo nome de função.`);}
  if(pdf)applyPdf(data,pdf);
+ // PUR sem quadro mensal de horas: média das horas totais do detalhamento financeiro pelos meses do projeto.
+ for(const [cat,t] of Object.entries(pdf?.rhTotals||{})){
+  if(data.values[cat][15].some(v=>v!==null))continue;
+  spreadPlanned(data,cat,15,t.hours);spreadPlanned(data,cat,10,t.people);
+  data.sources[cat][15]=data.sources[cat][15].map(s=>s.replace('Média informada na conferência:','Média do PUR:')+` — ${t.where}`);
+  data.sources[cat][10]=data.sources[cat][10].map(()=>`${t.where}: ${t.people} cargos com horas, repetidos em todos os meses`);
+  data.notices.push(`${cat}: horas previstas = ${t.hours} horas totais de ${t.people} cargos do detalhamento financeiro do PUR ÷ ${data.duration} meses. Profissionais previstos = ${t.people} em todos os meses. Confira com o PDF.`);
+ }
  if(categories.every(cat=>data.values[cat][2].every(v=>v===null)))data.notices.push('Cronograma mensal de dispêndios não reconhecido no PUR nem na planilha de apoio. Complete o planejado na conferência.');
  const pos=findSheet(fin,'posicao financeira');if(!pos)throw Error('Não encontrei a aba Posição Financeira no relatório financeiro.');
  const project=pos.get('C6');data.detectedProject=typeof project==='string'?project:'';
  const detectedStart=month(pos.get('L1'));if(detectedStart!==null&&detectedStart!==start)data.notices.push('O início informado difere da célula L1 da Posição Financeira. Confira a competência inicial antes de exportar.');
  // Calendar month matching, never assume the first financial column is project month 1.
- const map={};for(let c=13;c<=80;c++){const mm=month(at(pos,7,c));if(mm!==null&&mm>=start&&mm<start+duration){if(map[mm])throw Error('Competência duplicada na Posição Financeira dentro do projeto.');map[mm]=c;}}
+ const map={};for(let c=13;c<=80;c++){const mm=month(at(pos,7,c));if(mm!==null&&mm>=start&&mm<start+duration){if(map[mm]){
+   // Data errada na planilha depois do último mês do projeto (ex.: 02/05 em vez de 01/06): as competências do projeto já estão todas mapeadas, a coluna é ignorada.
+   if(Object.keys(map).length===duration){data.notices.push(`Posição Financeira: a coluna ${col(c)} repete a competência de ${String(mm%12+1).padStart(2,'0')}/${Math.floor(mm/12)} depois do último mês do projeto e foi ignorada. Confira as datas da linha 7.`);break;}
+   throw Error('Competência duplicada na Posição Financeira dentro do projeto.');}
+  map[mm]=c;}}
  for(const r of rowsOf(pos)){const cat=rubrica(pos.get('B'+r));if(!cat)continue;
   const realRow=[r+1,r+2,r+3].find(k=>norm(pos.get('L'+k)).startsWith('real.'));if(!realRow)continue;
   for(let m=0;m<closed;m++){const c=map[start+m];if(!c)continue;const state=norm(at(pos,6,c));if(state!=='realizado'){data.notices.push(`${cat}, mês ${m+1}: competência não marcada como Realizado na Posição Financeira.`);continue;}const a=col(c)+realRow;set(data,cat,3,m,pos.get(a),`${pos.name}!${a}`);}
@@ -109,6 +121,18 @@ function applyPdf(data,pdf){
   set(data,cat,+row,m,v,pdf.sources[cat][row][m]);}
  if(diverge.length)data.notices.push(`PUR em PDF e planilha de apoio divergem em ${diverge.length} campo(s); foi usado o PDF: ${diverge.slice(0,8).join(', ')}${diverge.length>8?'…':''}.`);
  data.notices.push(...pdf.notices);
+}
+/* Planejado de RH quando o PUR só traz totais: horas = total ÷ meses do projeto; profissionais = mesmo número em todos os meses.
+ * Arredonda em centavos de hora e põe a diferença no último mês, para a soma fechar com o total informado. */
+export function spreadPlanned(data,cat,row,total){
+ if(!['RHD','RHI'].includes(cat)||![10,15].includes(row))throw Error('Distribuição só vale para horas e profissionais previstos de RHD e RHI.');
+ if(typeof total!=='number'||!Number.isFinite(total)||total<0)throw Error('Informe um total válido, zero ou maior.');
+ if(row===10&&!Number.isInteger(total))throw Error('Profissionais deve ser inteiro.');
+ const n=data.duration,values=data.values[cat][row],sources=data.sources[cat][row];
+ const base=row===10?total:Math.floor(total*100/n)/100;
+ for(let m=0;m<n;m++){values[m]=m===n-1&&row===15?Math.round((total-base*(n-1))*100)/100:base;
+  sources[m]=row===10?`Informado na conferência: ${total} profissionais previstos em todos os meses`:`Média informada na conferência: ${total} horas previstas no PUR ÷ ${n} meses${m===n-1?' (último mês absorve o arredondamento)':''}`;}
+ return values;
 }
 export function missing(data){let n=0;for(const cat of categories)for(const [row,values]of Object.entries(data.values[cat]))for(let m=0;m<values.length;m++){if([3,11,16].includes(+row)&&m>=data.closed)continue;if(values[m]===null)n++;}return n;}
 export function calculated(data,cat,row,m){const v=data.values[cat];if(v[row])return v[row][m];let a,b;if(row===4)a=2;if(row===5)a=3;if(row===17)a=15;if(row===18)a=16;if(a){const values=v[a].slice(0,m+1);if(values.some(x=>x===null))return null;return values.reduce((x,y)=>x+y,0);}if(row===6){a=calculated(data,cat,5,m);b=calculated(data,cat,4,m);}if(row===19){a=calculated(data,cat,18,m);b=calculated(data,cat,17,m);}return a===null||b===null?null:b===0?'#DIV/0!':a/b;}
