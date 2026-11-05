@@ -9,7 +9,7 @@ const tags=(d,n)=>Array.from(d.getElementsByTagNameNS('*',n));
 const escape=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[c]));
 const numeric=x=>typeof x==='number'&&Number.isFinite(x);
 export function number(s){if(typeof s==='number')return s;if(!String(s).trim())return null;let t=String(s).trim().replace(/R\$|\s/g,'');if(t.includes(','))t=t.replace(/\./g,'').replace(',','.');if(!/^-?\d+(\.\d+)?$/.test(t))throw Error('Informe um número válido.');const n=Number(t);if(!Number.isFinite(n))throw Error('Número inválido.');return n;}
-export function month(serial){if(typeof serial==='number'){const d=new Date(Date.UTC(1899,11,30)+serial*86400000);return d.getUTCFullYear()*12+d.getUTCMonth();}const t=String(serial??'');let m=t.match(/^(\d{4})-(\d{2})/);if(m)return +m[1]*12+(+m[2]-1);m=t.match(/^(\d{1,2})-(\d{4})$/);return m?+m[2]*12+(+m[1]-1):null;}
+export function month(serial){if(typeof serial==='number'){const d=new Date(Date.UTC(1899,11,30)+serial*86400000);return d.getUTCFullYear()*12+d.getUTCMonth();}const t=String(serial??'');let m=t.match(/^(\d{4})-(\d{2})/);if(m)return +m[2]>=1&&+m[2]<=12?+m[1]*12+(+m[2]-1):null;m=t.match(/^(\d{1,2})-(\d{4})$/);return m&&+m[1]>=1&&+m[1]<=12?+m[2]*12+(+m[1]-1):null;}
 export function rubrica(label){const s=norm(label);if(s.includes('indireto')||s==='rhi')return 'RHI';if(s.includes('direto')||s==='rhd')return 'RHD';if(s.includes('correlato'))return 'Correlatos';if(s.includes('terceiro'))return 'STT';if(s.includes('materia')&&s.includes('consumo'))return 'Materiais';if(s.includes('laboratorio')||s.includes('infraestrutura'))return 'Laboratório';if(s.includes('programa')||s.includes('equipamento'))return 'Equipamentos';return null;}
 export async function openWorkbook(data,kind='all'){
  const zip=await JSZip.loadAsync(data);let bytes=0;for(const e of Object.values(zip.files)){bytes+=e._data?.uncompressedSize||0;}if(bytes>100*1024*1024)throw Error('Arquivo descompactado maior que 100 MB.');
@@ -44,7 +44,7 @@ export function financialInfo(fin){
  let start=month(pos.get('L1'));if(start===null&&comps.length)start=comps[0].mm;
  const done=comps.filter(x=>x.real&&start!==null&&x.mm>=start).map(x=>x.mm);
  const project=pos.get('C6');
- return {project:typeof project==='string'?project.trim():'',start,lastClosed:done.length?Math.max(...done):null};
+ return {project:typeof project==='string'?project.trim():'',start,realized:done,lastClosed:done.length?Math.max(...done):null};
 }
 export function durationFromText(text){
  const s=norm(text);
@@ -111,7 +111,9 @@ export function extract(fin,plan,options){
   if(!hr){data.notices.push(`Cabeçalhos de ${cat} não reconhecidos. Complete pessoas e horas manualmente.`);continue;}
   const sums=Array(closed).fill(0),people=Array.from({length:closed},()=>new Set()),bad=new Set();
   for(const r of rowsOf(s).filter(r=>r>hr)){const name=at(s,r,cols.name);if(typeof name!=='string'||!name.trim())continue;const mm=month(at(s,r,cols.date));if(mm===null){data.notices.push(`${cat}, linha ${r}: pessoa sem competência reconhecida.`);for(let m=0;m<closed;m++)bad.add(m);continue;}const m=mm-start;if(m<0||m>=closed)continue;const hours=at(s,r,cols.hours);if(!numeric(hours)||hours<0){bad.add(m);continue;}sums[m]+=hours;const id=cols.id?at(s,r,cols.id):null;people[m].add(id?String(id).replace(/\D/g,''):norm(name));}
-  for(let m=0;m<closed;m++){set(data,cat,11,m,bad.has(m)?null:people[m].size,`${s.name}: pessoas distintas por CPF/nome na competência`);set(data,cat,16,m,bad.has(m)?null:sums[m],`${s.name}: soma da coluna ${col(cols.hours)} na competência`);}
+  for(let m=0;m<closed;m++){const noRecords=people[m].size===0;
+   if(noRecords)data.notices.push(cat+', mês '+(m+1)+': nenhum registro de RH identificado. Confira a abertura antes de informar zero.');
+   set(data,cat,11,m,bad.has(m)||noRecords?null:people[m].size,`${s.name}: pessoas distintas por CPF/nome na competência`);set(data,cat,16,m,bad.has(m)||noRecords?null:sums[m],`${s.name}: soma da coluna ${col(cols.hours)} na competência`);}
  }
  if(missing(data)&&Object.values(fin.sheets).some(s=>Object.values(s.cells).some(c=>c.formula&&c.value===null)))data.notices.push('Há fórmulas sem resultado salvo no financeiro. Se uma pendência depender delas, recalcule e salve o arquivo no Excel antes de importar novamente.');
  data.notices=[...new Set(data.notices)];return data;

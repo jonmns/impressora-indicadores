@@ -9,6 +9,8 @@ with sync_playwright() as p:
         pg = b.new_page(); errs = []; pg.on('pageerror', lambda e: errs.append(str(e)))
         pg.goto(base + '/index.html')
         pg.set_input_files('#finance', os.path.join(fx, 'financeiro.xlsx')); pg.set_input_files('#pur', os.path.join(fx, name + '.pdf'))
+        pg.locator('details').filter(has=pg.locator('#manualPur')).locator('summary').click()
+        pg.fill('#manualPur', '999'); pg.fill('#identitySource', 'Documentos sintéticos do teste 999')
         pg.fill('#closed', '2026-09'); pg.check('#approved'); pg.click('#analyze')
         pg.wait_for_function("!document.getElementById('analyze').disabled&&!/Lendo|Cruzando/.test(document.getElementById('status').textContent)", timeout=30000)
         out = pg.evaluate("""()=>({status:document.getElementById('status').textContent,isErr:document.getElementById('status').classList.contains('error'),review:!document.getElementById('review').hidden,
