@@ -1,6 +1,11 @@
 # PUR digitalizado sintetico: paginas em imagem, tabelas giradas, carimbo em texto. Nenhum dado real.
+# Gera Adendo_scan.pdf (verdade em scan_truth.json) e variantes de PUR sem adendo, cada uma com <nome>.json:
+#   PUR_scan.pdf       PUR sem adendo, quadro girado 90 graus
+#   PUR_scan_ruim.pdf  digitalizacao pior: baixa resolucao, inclinacao, pouco contraste, ruido e JPEG forte
+#   PUR_scan_270.pdf   quadro girado 270 graus
+#   PUR_scan_pessimo.pdf  como o ruim, com resolucao e JPEG ainda piores: o OCR pode falhar, mas nao pode errar sem aviso
 import sys,asyncio,io,random
-from PIL import Image,ImageFilter
+from PIL import Image,ImageFilter,ImageEnhance
 from playwright.async_api import async_playwright
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
@@ -9,7 +14,7 @@ fmt=lambda v:f'{v:,.2f}'.replace(',','X').replace('.',',').replace('X','.') if v
 rub=[('I - uso de programas de computação, de máquinas, de equipamentos, de aparelhos e de instrumentos, seus acessórios, sobressalentes e ferramentas e serviço de instalação dessas máquinas e equipamentos;','prog'),
 ('II - aquisição, implantação, ampliação ou modernização de infraestrutura física e de laboratórios de PD&I de ICT, realizadas e justificadas no âmbito de projetos de PD&I;','lab'),
 ('III a - recursos humanos diretos;','rhd'),('III b - recursos humanos indiretos;','rhi'),('IV - aquisições de livros e periódicos técnicos;','livros'),('V - materiais de consumo;','mat'),('VI - viagens;','via'),('VII - treinamento;','tre'),('VIII - serviços técnicos de terceiros; e','stt'),('IX - outros correlatos.','cor')]
-def table(n,title):
+def table(n,title,random=random):
     data={}
     for _,k in rub:
         if k in('rhd','rhi'): data[k]=[round(random.uniform(8000,99999),2) for _ in range(n)]
@@ -48,4 +53,36 @@ async def main():
     c.setFont('Helvetica',10)
     for i,t in enumerate(['PROTOCOLO DE ASSINATURA(S)']+['Registro de assinatura numero %d com data, IP e identificacao do signatario do documento.'%k for k in range(30)]): c.drawString(40,740-i*14,t)
     c.showPage(); c.save()
+
+pur_txt='<html><body style="margin:60px;width:700px;font-family:Arial;font-size:13px;background:#fff"><h2>Plano de Utilização de Recursos</h2>'+'<p>Este plano descreve as atividades previstas em cada etapa do projeto, com os responsáveis e as entregas pactuadas entre a instituição executora e a coordenadora.</p>'*14+'</body></html>'
+def worse(im):
+    im=im.rotate(1.3,expand=True,fillcolor='white',resample=Image.BICUBIC)
+    im=ImageEnhance.Contrast(im).enhance(.45); im=ImageEnhance.Brightness(im).enhance(1.08)
+    noise=Image.effect_noise(im.size,60).convert('RGB'); return Image.blend(im,noise,.12)
+def stamp(c):
+    c.setFont('Helvetica',6)
+    for i,t in enumerate(['Este documento foi assinado digitalmente por Fulano de Tal e Beltrano. Este documento foi assinado eletronicamente por Sicrano.','Para verificar as assinaturas va ao site http://assinaturas.exemplo.br e utilize o codigo AAAA-BBBB.']):
+        c.drawString(30,24-i*8,t)
+async def variants():
+    import json
+    rv=random.Random(11)
+    specs=[('PUR_scan',12,2.4,90,None,70),('PUR_scan_ruim',10,2.0,90,worse,45),('PUR_scan_270',14,2.4,270,None,70),('PUR_scan_pessimo',10,1.6,90,worse,35)]
+    async with async_playwright() as p:
+        b=await p.chromium.launch()
+        for name,n,dpr,rot,fx,q in specs:
+            pg=await b.new_page(viewport={'width':1200,'height':820},device_scale_factor=dpr)
+            await pg.set_content(pur_txt); text=await pg.screenshot(full_page=False)
+            html,data=table(n,'CRONOGRAMA FINANCEIRO',rv); await pg.set_content(html); tab=await pg.screenshot(full_page=False); await pg.close()
+            json.dump({'pur':data},open(f'{out}/{name}.json','w'))
+            c=canvas.Canvas(f'{out}/{name}.pdf',pagesize=(612,792))
+            for kind,png in [('p',text),('l',tab)]:
+                im=Image.open(io.BytesIO(png)).convert('RGB')
+                if kind=='l': im=im.rotate(rot,expand=True)
+                im=im.filter(ImageFilter.GaussianBlur(.6))
+                if fx: im=fx(im)
+                bio=io.BytesIO(); im.save(bio,'JPEG',quality=q); bio.seek(0)
+                c.drawImage(ImageReader(bio),30,40,552,712,preserveAspectRatio=True); stamp(c); c.showPage()
+            c.save()
+        await b.close()
 asyncio.run(main())
+asyncio.run(variants())

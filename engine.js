@@ -92,7 +92,11 @@ export function extract(fin,plan,options){
  const project=pos.get('C6');data.detectedProject=typeof project==='string'?project:'';
  const detectedStart=month(pos.get('L1'));if(detectedStart!==null&&detectedStart!==start)data.notices.push('O início informado difere da célula L1 da Posição Financeira. Confira a competência inicial antes de exportar.');
  // Calendar month matching, never assume the first financial column is project month 1.
- const map={};for(let c=13;c<=80;c++){const mm=month(at(pos,7,c));if(mm!==null&&mm>=start&&mm<start+duration){if(map[mm])throw Error('Competência duplicada na Posição Financeira dentro do projeto.');map[mm]=c;}}
+ const map={};for(let c=13;c<=80;c++){const mm=month(at(pos,7,c));if(mm!==null&&mm>=start&&mm<start+duration){if(map[mm]){
+   // Data errada na planilha depois do último mês do projeto (ex.: 02/05 em vez de 01/06): as competências do projeto já estão todas mapeadas, a coluna é ignorada.
+   if(Object.keys(map).length===duration){data.notices.push(`Posição Financeira: a coluna ${col(c)} repete a competência de ${String(mm%12+1).padStart(2,'0')}/${Math.floor(mm/12)} depois do último mês do projeto e foi ignorada. Confira as datas da linha 7.`);break;}
+   throw Error('Competência duplicada na Posição Financeira dentro do projeto.');}
+  map[mm]=c;}}
  for(const r of rowsOf(pos)){const cat=rubrica(pos.get('B'+r));if(!cat)continue;
   const realRow=[r+1,r+2,r+3].find(k=>norm(pos.get('L'+k)).startsWith('real.'));if(!realRow)continue;
   for(let m=0;m<closed;m++){const c=map[start+m];if(!c)continue;const state=norm(at(pos,6,c));if(state!=='realizado'){data.notices.push(`${cat}, mês ${m+1}: competência não marcada como Realizado na Posição Financeira.`);continue;}const a=col(c)+realRow;set(data,cat,3,m,pos.get(a),`${pos.name}!${a}`);}

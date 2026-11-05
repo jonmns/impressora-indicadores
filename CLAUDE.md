@@ -18,15 +18,25 @@ Repositório: https://github.com/jonmns/impressora-indicadores
 
 Sirva a pasta com `python -m http.server 8931`. Não abra `index.html` por `file://`.
 
-- `tests.html`: testes no navegador (63 verificações).
-- `dev/run-tests.js`: roda `tests.html` no Chromium via Playwright. Uso: `node dev/run-tests.js http://127.0.0.1:8931`.
+- `tests.html`: testes no navegador (87 verificações). Inclui OCR real com o Tesseract de `vendor/`: um quadro desenhado em canvas, com células apagadas da leitura para exercitar `fillGaps`.
+- `dev/run-tests.js` ou `dev/run_tests.py`: rodam `tests.html` no Chromium via Playwright. Uso: `python dev/run_tests.py http://127.0.0.1:8931`.
 - `dev/make_fixtures.py` e `dev/make_scan.py`: geram PDFs e planilha sintéticos. Dependências: pillow, playwright, reportlab, openpyxl.
-- `dev/run.js`: fluxo completo com PDFs de texto.
-- `dev/ocr.js`: fluxo completo com PDF digitalizado sintético, comparando com `scan_truth.json`. Resultado atual: 105 corretos, 0 errados, 0 faltando.
-- `dev/dbg.js`: despeja o texto do OCR por página.
+- `dev/run.js` ou `dev/run.py`: fluxo completo com PDFs de texto.
+- `dev/ocr.js` ou `dev/ocr.py`: fluxo completo com PDF digitalizado sintético. `ocr.py` aceita o nome do PDF (`python dev/ocr.py URL PASTA PUR_scan_270.pdf`) e reprova se houver valor errado sem aviso na rubrica.
+- `dev/dbg.js` ou `dev/dbg.py`: despeja o texto do OCR por página.
 - `dev/flow_real.py`, `dev/ui_real.py`, `dev/check_real.py` (Playwright Python e openpyxl): fluxo pela tela com documentos reais e conferência do `.xlsx` contra a planilha financeira. Passe os caminhos por argumento e grave a saída fora do repositório.
 
-Antes de rodar `dev/`, instale `playwright` e gere as fixtures em uma pasta fora do versionamento.
+As versões em Python servem para máquinas sem Node. Antes de rodar `dev/`, instale as dependências (`python -m pip install pillow playwright reportlab openpyxl` e `python -m playwright install chromium`) e gere as fixtures em uma pasta fora do versionamento. Se outra sessão já usa a porta 8931, sirva em outra porta com `--directory` apontando para a sua cópia: o servidor de outra pasta responde com o código errado sem avisar.
+
+Resultado atual de `dev/ocr.py` (corretos / errados / faltando / errados sem aviso):
+
+| PDF | Caso | Resultado |
+|---|---|---|
+| `Adendo_scan.pdf` | adendo DE/PARA, quadro girado 90° | 105 / 0 / 0 / 0 |
+| `PUR_scan.pdf` | PUR sem adendo | 84 / 0 / 0 / 0 |
+| `PUR_scan_270.pdf` | quadro girado 270° | 97 / 0 / 1 / 0 |
+| `PUR_scan_ruim.pdf` | 2x, inclinado 1,3°, pouco contraste, ruído, JPEG 45 | 16 / 11 / 43 / 0 |
+| `PUR_scan_pessimo.pdf` | como o ruim, com 1,6x e JPEG 35 | 1 / 9 / 60 / 0 |
 
 ## Fluxo do PUR em PDF
 
@@ -38,15 +48,24 @@ Antes de rodar `dev/`, instale `playwright` e gere as fixtures em uma pasta fora
 4. `filterCurrent` isola os quadros PARA de adendos. Adendo sem PARA identificável é bloqueado de propósito.
 5. `parsePur` monta valores, totais e `moneyMonths`. `rhTotals` (`pur-rh.js`) lê as horas de RH do detalhamento financeiro nas páginas sem filtro.
 6. A duração vem do quadro financeiro (`moneyMonths`), porque cronograma físico e vigência podem ser maiores que a execução.
-7. Com OCR, `reconcile` compara cada rubrica com a coluna de total.
+7. Com OCR, `reviewOcr` compara cada rubrica com a coluna de total (`reconcile`) e avisa: total que parece lido errado, valor corrigido pela soma, células sem leitura que viraram zero (quantas e onde) e rubrica que não fecha.
+8. `checkSubtotals` confere cada mês contra a linha Sub-Total, somando as sete rubricas e as que não vão para o relatório (livros, viagens, treinamento, lidas por `parsePur` em `others`). Divergência vira aviso; nenhum valor é alterado.
 
-Detalhes do OCR em `pur-ocr.js`: passada rápida (escala 3) em todas as páginas, releitura (escala 5) dos quadros mensais, remoção das linhas de grade em `clean`, supressão do carimbo de assinatura com `ctx.fillText=()=>{}`, releitura de células vazias em `fillGaps`, cabeçalho reconstruído em `repairHeader`. A renderização usa `intent:'print'` para não depender de animation frame com a janela fora de vista.
+Detalhes do OCR em `pur-ocr.js`: passada rápida (escala 3) em todas as páginas, releitura (escala 5) dos quadros mensais, correção de inclinação em `skewAngle`, contraste esticado e remoção das linhas de grade em `clean`, títulos soltos (De/Para) recuperados por leitura esparsa em `addTitles`, supressão do carimbo de assinatura com `ctx.fillText=()=>{}`, releitura de células vazias em `fillGaps`, cabeçalho reconstruído em `repairHeader`. A renderização usa `intent:'print'` para não depender de animation frame com a janela fora de vista.
 
 ## Causas já resolvidas
 
 - `Cannot perform Construct on a detached ArrayBuffer`: o pdf.js desanexa o buffer ao transferi-lo para o worker. Sempre passe uma cópia.
 - PDF assinado no Certisign vira imagem. A única camada de texto é o carimbo, repetido em todas as páginas.
 - O cabeçalho dos quadros sumia no OCR por causa das linhas de grade.
+- A leitura em bloco (psm 6) às vezes descarta o título "Para:" acima do quadro, e o adendo era bloqueado. `addTitles` resolve.
+- Em PDF de duas páginas, o carimbo não chegava ao mínimo de repetições e a página digitalizada não ia para o OCR.
+- Palavra solta de linha quebrada ("de", "Quadro de", "anterior.", "proposta.") virava marcador DE/PARA. Agora, sem dois-pontos, o marcador precisa estar em maiúsculas ou começar com maiúscula.
+- Linha de total de quadro de desembolso ou por etapa era tomada como Sub-Total. Agora só conta em quadro com pelo menos três rubricas.
+- "DE" de fragmento do OCR numa tabela de RH bloqueava o documento como "DE sem PARA". Sem PARA, o DE só conta se vier antes de um quadro de meses com rubricas.
+- "Sub-T otal" (letras separadas no PDF) não era reconhecido como total, e a conferência acusava divergência falsa em todos os meses.
+- O OCR era pulado quando só o cronograma físico tinha cabeçalho de meses em texto e o quadro financeiro era imagem. Agora o OCR roda sempre que não há quadro financeiro legível.
+- `fillGaps` ampliava o recorte 2x fixo; com letra maior, os dígitos ficavam altos demais para o Tesseract. Agora mira uns 32 px.
 
 ## Pendências
 
@@ -58,11 +77,12 @@ Detalhes do OCR em `pur-ocr.js`: passada rápida (escala 3) em todas as páginas
 
 ### Confiabilidade do OCR
 
-4. `reconcile` devolve `totalMisread` sem gerar aviso. Deve avisar.
-5. Células sem leitura viram zero quando a soma confere. Isso aparece na fonte da célula, sem aviso geral.
-6. Falta conferir cada mês contra a linha Sub-Total. Hoje só as linhas são conferidas. Exige ler também as rubricas fora das sete categorias (livros, viagens, treinamento).
-7. O OCR só foi testado com um adendo real. Faltam PUR sem adendo, digitalização de pior qualidade e página girada 270°.
-8. `dev/ocr.js` não simula células perdidas pelo OCR, então `fillGaps` só foi exercitado no documento real.
+Itens 4 a 8 resolvidos (avisos de `reviewOcr`, conferência pelo Sub-Total, variantes de digitalização, teste de `fillGaps`). Os números abaixo são de pendências novas:
+
+4. Digitalização ruim ainda lê pouco (`PUR_scan_ruim.pdf`: 16 corretos de 70). Os errados têm aviso, mas o resultado não serve. Caminhos: binarização adaptativa por região, OCR com dígitos maiores na passada fina, ou pedir ao usuário um PDF melhor quando o Sub-Total não fecha.
+5. Testar com mais PUR e adendos reais digitalizados. Só um adendo real passou pelo OCR.
+7. **Termo Aditivo sem DE/PARA (decidido: ler como PUR completo).** `consolidatedReview`: rubrica que fecha com o total fica como lida (com OCR, diferença de até R$ 0,10 passa com aviso); rubrica sem total, que não fecha ou com mês sem leitura fica pendente inteira, com o valor lido na fonte da célula. Bloqueia só com menos de três rubricas que fecham ou com Sub-Total divergente. Sempre com o aviso "Plano lido de Termo Aditivo sem DE/PARA". Na última rodada com os PUR reais, um digitalizado ainda é bloqueado (só duas rubricas fecham). Melhorar o OCR desse caso fica para um PR seguinte.
+6. `valueColumns` aceita como coluna de valores os traços dos rótulos ("I - uso..."), e `fillGaps` relê essa coluna à toa. Não erra, só gasta tempo.
 
 ### Experiência
 
