@@ -18,7 +18,7 @@ Repositório: https://github.com/jonmns/impressora-indicadores
 
 Sirva a pasta com `python -m http.server 8931`. Não abra `index.html` por `file://`.
 
-- `tests.html`: testes no navegador (61 verificações).
+- `tests.html`: testes no navegador (63 verificações).
 - `dev/run-tests.js`: roda `tests.html` no Chromium via Playwright. Uso: `node dev/run-tests.js http://127.0.0.1:8931`.
 - `dev/make_fixtures.py` e `dev/make_scan.py`: geram PDFs e planilha sintéticos. Dependências: pillow, playwright, reportlab, openpyxl.
 - `dev/run.js`: fluxo completo com PDFs de texto.
@@ -52,9 +52,9 @@ Detalhes do OCR em `pur-ocr.js`: passada rápida (escala 3) em todas as páginas
 
 ### Uso real
 
-1. **Validar pelo botão.** Feito com JIGX e Hermes (PDF de texto): Extrair, conferir, gerar o `.xlsx` e abrir no Excel sem reparo. Rodado em lote nos 14 projetos de 09/2026 com `dev/flow_real.py`. Falhas abertas, todas de leitura do PDF (ver itens 7 e 16): Mercurius sem duração; Storm, Zapy, MAWE MIRI, Dominia e ShinQ bloqueados por falta de quadro PARA; Zeus e Aegis com R$ planejado pendente após OCR. Hermes e Avanti (OCR) ficam só com as pendências de RH, resolvidas pelo item 2. Aurora é bloqueio correto: o fechamento 09/2026 passa do fim do projeto (07/2026).
-2. **Horas e profissionais previstos.** Resolvido. O PUR real não tem quadro mensal de horas; `pur-rh.js` lê o "Detalhamento dos recursos financeiros" (tabelas c) RH Diretos e d) RH Indiretos, PARA em adendo, aceita só se fechar com o TOTAL) e `extract` distribui a média das horas totais pelos meses, com o número de cargos como profissionais previstos. Se a leitura falhar, o usuário informa os totais nas abas RHD e RHI da conferência (`spreadPlanned` em `engine.js`). A aba "Profissionais Previstos" da planilha financeira não serve de fonte: está vazia ou com datas erradas.
-3. **Conferir realizado e exportação.** Feito com `dev/check_real.py`: JIGX 668 verificações sem divergência; Hermes 308 verificações, 3 divergências de centavos no último mês do planejado porque os meses do próprio PUR somam R$ 0,01 a 0,03 acima do total (a planilha ajusta o último mês; o site segue o PDF).
+1. **Validar pelo botão.** Feito. Com `dev/flow_real.py` nos 14 projetos de 09/2026, JIGX, Hermes (texto), Avanti e Agillia (OCR) saem sem pendência: Extrair, conferir, gerar o `.xlsx` e abrir no Excel sem reparo. Falhas abertas, todas de leitura do PDF (itens 7 e 16): Mercurius sem duração; Storm, Zapy, MAWE MIRI, Dominia e ShinQ bloqueados por falta de quadro PARA; Zeus e Aegis com R$ planejado e detalhamento de RH ilegíveis após o OCR (ficam pendentes). Aurora é bloqueio correto: o fechamento 09/2026 passa do fim do projeto (07/2026). Prioris não tem PDF na pasta.
+2. **Horas e profissionais previstos.** Resolvido. O PUR real não tem quadro mensal de horas; `pur-rh.js` lê o "Detalhamento dos recursos financeiros" (tabelas c) RH Diretos e d) RH Indiretos, PARA em adendo, aceita só se fechar com o TOTAL; uma linha sem valor no OCR é deduzida do TOTAL quando horas × custo/hora confere, com aviso) e `extract` distribui a média das horas totais pelos meses, com o número de cargos como profissionais previstos. Se a leitura falhar, o usuário informa os totais nas abas RHD e RHI da conferência (`spreadPlanned` em `engine.js`). A aba "Profissionais Previstos" da planilha financeira não serve de fonte: está vazia ou com datas erradas.
+3. **Conferir realizado e exportação.** Feito com `dev/check_real.py`: JIGX 668 verificações sem divergência; Hermes (308), Avanti (290) e Agillia (579) só com 1 a 3 centavos no último mês do planejado, porque os meses do próprio PUR somam um pouco acima do total e a planilha ajusta o último mês (o site segue o PDF).
 
 ### Confiabilidade do OCR
 

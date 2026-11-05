@@ -9,8 +9,11 @@ const money=t=>pdfNumber(t);
 function tail(text){
  const tokens=String(text).replace(/R\$\s*/g,'').trim().split(/\s+/);if(tokens.length<4)return null;
  const [h,c,v]=tokens.slice(-3).map(money);const label=tokens.slice(0,-3).join(' ');
- if([h,c,v].some(x=>x===null||x<0)||!/\d/.test(tokens.at(-3)))return null;
- return {label:label.replace(/^\d{1,2}\s+/,'').trim(),hours:h,rate:c,value:v};
+ if(![h,c,v].some(x=>x===null||x<0)&&/\d/.test(tokens.at(-3)))return {label:label.replace(/^\d{1,2}\s+/,'').trim(),hours:h,rate:c,value:v};
+ // OCR pode perder o valor da linha: sobram horas (inteiro) e custo/hora (com centavos). O valor é deduzido do TOTAL depois.
+ const [h2,c2]=tokens.slice(-2);
+ if(/^\d{1,3}(\.\d{3})*$|^\d+$/.test(h2)&&/,\d{2}$/.test(c2)&&money(tokens.at(-3))===null&&money(h2)!==null&&money(c2)!==null)return {label:tokens.slice(0,-2).join(' ').replace(/^\d{1,2}\s+/,'').trim(),hours:money(h2),rate:money(c2),value:null};
+ return null;
 }
 export function rhTotals(pages,file='PUR.pdf'){
  let inDetail=false,section=null,state='ALL';const tables={};
@@ -30,8 +33,12 @@ export function rhTotals(pages,file='PUR.pdf'){
  for(const cat of ['RHD','RHI']){
   const table=tables[cat+'|PARA']||tables[cat+'|ALL'];
   if(!table||!table.rows.length)continue;
-  const sum=table.rows.reduce((a,r)=>a+r.value,0);
-  if(table.total===null||Math.abs(sum-table.total)>1){notices.push(`${cat}: a tabela de horas do detalhamento financeiro não fecha com o total (${sum.toFixed(2)} × ${table.total===null?'sem total':table.total.toFixed(2)}). Horas previstas ficam pendentes.`);continue;}
+  const partial=table.rows.filter(r=>r.value===null);let sum=table.rows.reduce((a,r)=>a+(r.value??0),0);
+  if(partial.length===1&&table.total!==null){const r=partial[0],rest=table.total-sum;
+   // Aceita só se horas × custo/hora explicar o que falta, dentro do arredondamento do custo/hora em centavos.
+   if(Math.abs(r.hours*r.rate-rest)<=r.hours*.005+1){r.value=Math.round(rest*100)/100;sum=table.total;notices.push(`${cat}: no detalhamento financeiro, "${r.label}" está sem valor lido; ${r.hours} h × ${r.rate} confere com o que falta para o total. Confira no PDF.`);}}
+  else if(partial.length)sum=NaN;
+  if(table.total===null||!(Math.abs(sum-table.total)<=1)){notices.push(`${cat}: a tabela de horas do detalhamento financeiro não fecha com o total (${Number.isNaN(sum)?'linhas sem valor':sum.toFixed(2)} × ${table.total===null?'sem total':table.total.toFixed(2)}). Horas previstas ficam pendentes.`);continue;}
   const hours=Math.round(table.rows.reduce((a,r)=>a+r.hours,0)*100)/100;
   out[cat]={hours,people:table.rows.filter(r=>r.hours>0).length,rows:table.rows,where:`${file}, p. ${[...table.pages].join(', ')}, detalhamento dos recursos financeiros${table.state==='PARA'?' (PARA)':''}`};
  }

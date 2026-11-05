@@ -94,6 +94,10 @@ try{
  assert(rh.totals.RHD?.hours===2288&&rh.totals.RHD.people===2&&rh.totals.RHI?.hours===1113&&rh.totals.RHI.people===2&&!rh.notices.length,'detalhamento: horas PARA de RHD e RHI, com DE antes do título');
  const broken=rhTotals([detail[0].map(l=>l.text==='TOTAL 66.809,55'?L('TOTAL 99.999,99'):l)],'PUR.pdf');
  assert(broken.totals.RHD&&!broken.totals.RHI&&/RHI/.test(broken.notices[0]),'detalhamento que não fecha com o total fica pendente');
+ const ocrLost=rhTotals([detail[0].map(l=>l.text==='2 Auxiliar Administrativo 352 28,80 10.136,85'?L('2 Auxiliar Administrativo 352 R$ 28,80'):l)],'PUR.pdf');
+ assert(ocrLost.totals.RHI?.hours===1113&&/sem valor lido/.test(ocrLost.notices[0]),'linha sem valor no OCR é deduzida do total, com aviso');
+ const ocrWrong=rhTotals([detail[0].map(l=>l.text==='2 Auxiliar Administrativo 352 28,80 10.136,85'?L('2 Auxiliar Administrativo 352 R$ 18,80'):l)],'PUR.pdf');
+ assert(!ocrWrong.totals.RHI,'linha sem valor que não explica o total fica pendente');
  const viaPdf=extract(fin,plan,{project:'x',start,duration:12,closed:1,pdf:{values:{},sources:{},notices:[],rhTotals:rh.totals}});
  assert(viaPdf.values.RHD[15][0]===190.66&&viaPdf.values.RHD[10].every(v=>v===2)&&viaPdf.values.RHI[15][11]===92.75&&/detalhamento/.test(viaPdf.sources.RHD[15][0]),'média do detalhamento preenche horas e profissionais previstos');
  assert(durationFromText('Prazo de execução: 15 (quinze) meses')===15&&durationFromText('A duração do projeto é de 12 meses')===12&&durationFromText('Mês 1 Mês 2')===null&&durationFromText('prazo de 30 dias')===null,'duração lida do texto do PUR');
