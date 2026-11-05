@@ -95,5 +95,5 @@ Itens 4 a 8 resolvidos (avisos de `reviewOcr`, conferência pelo Sub-Total, vari
 12. Versionar `dev/` e criar testes de OCR. Avaliar CI.
 13. Citar `pur-ocr.js` na seção Arquitetura do `README.md`.
 14. ~~Remover `LEIA-ME-ANTES-DE-ENVIAR.txt`~~ Resolvido: arquivo removido e as observações úteis foram para o `README.md`.
-15. `rotatedPages` parece redundante agora que o OCR cobre páginas giradas. Confirmar antes de remover.
+15. ~~`rotatedPages` redundante?~~ Resolvido: **fica**. Testado com PDFs de texto sintéticos (cabeçalho girado 90° e 270°; página inteira girada 90° e 270°), com e sem a função: cabeçalho girado dá o mesmo resultado nos dois casos (12 meses, mesmos valores), mas com a página inteira girada 270° sem `rotatedPages` o documento falha ("Não encontrei a quantidade de meses") e com ela a duração é achada. Custo medido: 0,0 a 0,17 s por PDF de uma página, contra minutos de OCR. Limite conhecido: com a página inteira girada, só o cabeçalho vem da segunda leitura; os valores das rubricas ficam pendentes (e a página girada 90° não acha 12 meses nem com ela). Comentário no código explica.
 16. Para PDF de texto, avisar quando a soma dos meses de uma rubrica difere do total do quadro (hoje `reconcile` só roda com OCR).

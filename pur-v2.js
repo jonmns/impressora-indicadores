@@ -126,6 +126,7 @@ export async function readPurPdf(file,options={}){
  const buffer=await file.arrayBuffer();
  let pages=await pdfPages(buffer);
  if(!durationFromHeaders(pages)){
+  // Mantida de propósito: com a página inteira girada, só ela acha o cabeçalho de meses (testado), a ~0,2 s contra minutos de OCR.
   const rotated=await rotatedPages(buffer);
   if(durationFromHeaders(rotated))pages=pages.map((original,i)=>[...original,...rotated[i]]);
  }
