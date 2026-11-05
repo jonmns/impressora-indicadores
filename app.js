@@ -1,4 +1,4 @@
-import {categories,inputRows,openWorkbook,extract,missing,calculated,exportWorkbook,referenceText,number,month,financialInfo,durationFromText,planDuration,spreadPlanned} from './engine.js';
+import {categories,inputRows,openWorkbook,extract,missing,calculated,exportWorkbook,referenceText,number,month,financialInfo,durationFromText,planDuration,spreadPlanned,buildChecks,openChecks,answerCheck} from './engine.js';
 import {readPurPdf} from './pur-v2.js';
 const $=id=>document.getElementById(id);let data=null,abort=null,active=categories[0],snapshot='';
 const format=(v,pct=false)=>v===null?'Pendente':typeof v==='string'?v:new Intl.NumberFormat('pt-BR',{maximumFractionDigits:2,...(pct?{style:'percent'}:{})}).format(v);
@@ -27,14 +27,28 @@ $('analyze').addEventListener('click',async()=>{
  data=extract(f,p,{project:info.project,start,duration,closed,pdf});if(!isPdf)data.notices.unshift('PUR em Word serve só para consulta: o planejado vem da planilha de apoio ou da conferência manual.');
  data.notices.unshift(`Início ${label(start)} (financeiro), ${duration} meses (PUR), fechamento ${label(month($('closed').value))} = mês ${closed}.`);
  if(pdf?.adendo?.usedPara)data.notices.unshift('Fonte do adendo: quadros PARA. Confira se o documento é consolidado e se as rubricas não alteradas estão contempladas.');
+ data.checks=buildChecks(data);
  data.files={financial:fin.name,pur:pur.name,plan:plan?.name||null,template:$('template').files[0]?.name||'Modelo interno equivalente'};
  $('reftext').textContent=reference;$('refbox').hidden=!reference;
  snapshot=signature();$('reviewed').checked=false;active=categories[0];$('review').hidden=false;renderNotices();render();status('Extração concluída. Confira os campos pendentes e as fontes, marque a conferência e clique em Gerar relatório .xlsx.');$('review').scrollIntoView({behavior:'smooth',block:'start'});
  }catch(e){if(e.name==='AbortError')status('Leitura cancelada. Os arquivos continuam selecionados; clique em Extrair e conferir para tentar de novo.');else status(e.message||'Não foi possível ler os arquivos.',true);}finally{$('analyze').disabled=false;$('cancel').hidden=true;abort=null;}
 });
 $('cancel').addEventListener('click',()=>{if(abort){abort.abort();$('cancel').disabled=true;status('Cancelando…');setTimeout(()=>{$('cancel').disabled=false;},500);}});
-function renderNotices(){const root=$('notices');root.replaceChildren();for(const n of data.notices){const d=document.createElement('div');d.className='notice';d.textContent=n;root.append(d);}if(data.detectedProject){const d=document.createElement('p');d.className='help';d.textContent='Nome identificado no financeiro: '+data.detectedProject;root.prepend(d);}}
-function updateCounts(){const n=missing(data);$('counts').textContent=n?`${n} campos pendentes`:'Todos os campos preenchidos';$('export').disabled=!!n||!$('reviewed').checked;}
+/* Avisos informativos ficam como texto; cada ponto incerto vira uma confirmação que precisa de resposta antes da exportação. */
+function renderNotices(){const root=$('notices');root.replaceChildren();
+ if(data.detectedProject){const d=document.createElement('p');d.className='help';d.textContent='Nome identificado no financeiro: '+data.detectedProject;root.append(d);}
+ for(const n of data.notices.filter(n=>!data.checks.some(c=>c.text===n))){const d=document.createElement('div');d.className='notice';d.textContent=n;root.append(d);}
+ if(!data.checks.length)return;
+ const done=data.checks.length-openChecks(data),h=document.createElement('p');h.className='checks-title';h.textContent=`Confirme cada ponto abaixo antes de gerar o relatório: ${done} de ${data.checks.length} respondidos.`;root.append(h);
+ const btn=(text,fn,cls='secondary')=>{const b=document.createElement('button');b.type='button';b.className=cls;b.textContent=text;b.addEventListener('click',fn);return b;};
+ for(const c of data.checks){const d=document.createElement('div');d.className='check'+(c.answer?' answered':'');d.id='check-'+c.id;
+  const t=document.createElement('p');t.textContent=c.text;const a=document.createElement('div');a.className='check-actions';
+  if(c.answer){const s=document.createElement('span');s.className='check-done';s.textContent=c.answer==='confirmado'?'✓ Confirmado':'✓ Corrigido na tabela';a.append(s,btn('Desfazer',()=>answer(c.id,null),'link'));}
+  else{a.append(btn('Confirmo, está correto',()=>answer(c.id,'confirmado')),btn('Corrigi na tabela',()=>answer(c.id,'corrigido')));if(c.cat)a.append(btn(`Abrir ${c.cat}`,()=>{active=c.cat;render();$('tabs').scrollIntoView({behavior:'smooth',block:'start'});},'link'));}
+  d.append(t,a);root.append(d);}
+}
+function answer(id,value){try{answerCheck(data,id,value);renderNotices();updateCounts();status(value?'Resposta registrada na memória de preenchimento.':'Resposta desfeita.');}catch(e){status(e.message,true);}}
+function updateCounts(){const n=missing(data),q=openChecks(data),parts=[];if(n)parts.push(`${n} campos pendentes`);if(q)parts.push(`${q} ${q===1?'confirmação pendente':'confirmações pendentes'}`);$('counts').textContent=parts.length?parts.join(' · '):'Todos os campos preenchidos e confirmados';$('export').disabled=!!n||!!q||!$('reviewed').checked;}
 function render(){
  $('tabs').replaceChildren();for(const cat of categories){const b=document.createElement('button');b.textContent=cat;b.setAttribute('role','tab');b.setAttribute('aria-selected',String(active===cat));b.addEventListener('click',()=>{active=cat;render();});$('tabs').append(b);}
  const table=document.createElement('table'),thead=table.createTHead(),h=thead.insertRow();h.append(document.createElement('th'));h.cells[0].textContent='Indicador';for(let m=0;m<data.duration;m++){const th=document.createElement('th');const dt=new Date(Date.UTC(Math.floor((data.start+m)/12),(data.start+m)%12,1));th.textContent=`M${m+1} · ${dt.toLocaleDateString('pt-BR',{month:'short',year:'2-digit',timeZone:'UTC'})}`;h.append(th);}
@@ -58,5 +72,5 @@ function spreadForm(){
 $('reviewed').addEventListener('change',()=>data&&updateCounts());
 function download(blob,name){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),10000);}
 function stem(){return (data.project||'Indicadores').replace(/[^\p{L}\p{N}_-]/gu,'_').slice(0,80);}
-$('export').addEventListener('click',async()=>{if(!data)return;try{if(signature()!==snapshot)throw Error('Parâmetros alterados. Extraia novamente.');$('export').disabled=true;status('Gerando o Excel com os valores conferidos…');const blob=await exportWorkbook(data,$('template').files[0]);download(blob,stem()+'_Indicadores.xlsx');status('Relatório gerado. A memória de preenchimento pode ser baixada separadamente.');}catch(e){status(e.message,true);}finally{updateCounts();}});
+$('export').addEventListener('click',async()=>{if(!data)return;try{if(signature()!==snapshot)throw Error('Parâmetros alterados. Extraia novamente.');if(openChecks(data))throw Error('Responda todas as confirmações antes de gerar o relatório.');$('export').disabled=true;status('Gerando o Excel com os valores conferidos…');const blob=await exportWorkbook(data,$('template').files[0]);download(blob,stem()+'_Indicadores.xlsx');status('Relatório gerado. A memória de preenchimento pode ser baixada separadamente.');}catch(e){status(e.message,true);}finally{updateCounts();}});
 $('audit').addEventListener('click',()=>{if(data)download(new Blob([JSON.stringify({...data,generatedAt:new Date().toISOString()},null,2)],{type:'application/json'}),stem()+'_Memoria.json');});
