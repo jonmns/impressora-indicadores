@@ -13,13 +13,14 @@ Repositório: https://github.com/jonmns/impressora-indicadores
 - O documento não sai da máquina do usuário.
 - Em dúvida entre valor errado e campo pendente, deixe pendente. Valor de OCR nunca passa sem aviso.
 - Toda leitura incerta vira confirmação (`buildChecks` em `engine.js`): avisos da extração, menos os informativos, e os valores de OCR por rubrica. O Excel só é gerado com todas respondidas (Confirmado ou Corrigido na tabela), e as respostas vão para a memória de preenchimento. `tidyNotices` junta avisos repetidos (duração, adendo, profissionais) e descarta o de quadro de horas quando as horas foram lidas; PUR igual nos dois arquivos e páginas puladas são só informação. OCR igual à planilha de apoio (`data.agree`, gravado em `applyPdf`) vem conferido. Cada confirmação abre a tela de resolução (`resolve.js`): à esquerda a fonte (página do PUR renderizada pelo pdf.js, com o valor destacado na linha da rubrica e na coluna do mês quando o PDF tem texto, ou o trecho da planilha com a célula marcada); à direita os valores lidos, editáveis. `cellsForCheck` liga o aviso às células (rubrica, linha e meses citados) e `sourceRef` acha a página ou a célula de origem.
+- Previsto: a planilha de apoio aprovada é a referência. Na divergência com o PDF, fica a planilha e o PDF vira aviso (`applyPdf`). Profissionais previstos = vagas (cargo + custo-hora) com horas no mês, na aba Plano de trabalho; a mesma vaga em várias etapas conta uma vez e duas linhas iguais na mesma etapa contam duas.
 - Responda em português, em prosa direta.
 
 ## Como testar
 
 Sirva a pasta com `python -m http.server 8931`. Não abra `index.html` por `file://`.
 
-- `tests.html`: testes no navegador (111 verificações). Inclui OCR real com o Tesseract de `vendor/`: um quadro desenhado em canvas, com células apagadas da leitura para exercitar `fillGaps`.
+- `tests.html`: testes no navegador (114 verificações). Inclui OCR real com o Tesseract de `vendor/`: um quadro desenhado em canvas, com células apagadas da leitura para exercitar `fillGaps`.
 - `dev/run-tests.js` ou `dev/run_tests.py`: (também rodam no CI, `.github/workflows/tests.yml`) rodam `tests.html` no Chromium via Playwright. Uso: `python dev/run_tests.py http://127.0.0.1:8931`.
 - `dev/make_fixtures.py` e `dev/make_scan.py`: geram PDFs e planilha sintéticos. Dependências: pillow, playwright, reportlab, openpyxl.
 - `dev/run.js` ou `dev/run.py`: fluxo completo com PDFs de texto.

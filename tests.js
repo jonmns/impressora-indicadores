@@ -69,7 +69,13 @@ try{
  assert(pur.values.RHI[15][0]===40&&pur.values.RHI[10][0]===1,'PDF: horas do RH indireto');assert(pur.text.includes('Pesquisador'),'PDF: texto para consulta');
  const merged=extract(fin,null,{project:'Sintético',start,duration:12,closed:1,pdf:pur});
  assert(merged.values.RHD[15][0]===240&&merged.values.Equipamentos[2][0]===1000&&merged.values.Equipamentos[3][0]===10,'PDF + financeiro sem planilha de apoio');
- const both=extract(fin,plan,{project:'Sintético',start,duration:12,closed:1,pdf:pur});assert(both.values.Equipamentos[2][0]===1000&&both.values.Materiais[2][0]===104,'PDF prevalece, planilha completa');assert(both.notices.some(n=>n.includes('divergem')),'divergência avisada');
+ const both=extract(fin,plan,{project:'Sintético',start,duration:12,closed:1,pdf:pur});assert(both.values.Equipamentos[2][0]===100&&both.values.Materiais[2][0]===104,'planilha de apoio aprovada prevalece sobre o PDF');assert(both.notices.some(n=>n.includes('foi usada a planilha de apoio')),'divergência com o PDF avisa qual fonte ficou');
+ {const pc={A1:'III a - recursos humanos diretos'};for(let m=0;m<12;m++)pc[String.fromCharCode(69+m)+'1']='Mês '+String(m+1).padStart(2,'0');
+  Object.assign(pc,{A2:'Desenvolvedor',C2:92.36,D2:'Etapa 01',E2:10,A3:'Desenvolvedor',C3:144.41,D3:'Etapa 01',E3:10,A4:'Desenvolvedor',C4:92.36,D4:'Etapa 02',E4:5,A5:'Tester',C5:80,D5:'Etapa 01',E5:8,A6:'Tester',C6:80,D6:'Etapa 01',E6:8});
+  for(let r=2;r<=6;r++)for(let m=1;m<12;m++)pc[String.fromCharCode(69+m)+r]=0;
+  const v=extract(fin,{sheets:{p:sheet('Plano de trabalho',pc)}},{project:'Sintético',start,duration:12,closed:1});
+  assert(v.values.RHD[15][0]===41,'apoio: horas previstas somam todas as linhas do mês');
+  assert(v.values.RHD[10][0]===4,'apoio: vaga = cargo + custo-hora; mesma vaga em duas etapas conta uma; duas linhas iguais na mesma etapa contam duas');}assert(both.notices.some(n=>n.includes('divergem')),'divergência avisada');
  {const c=structuredClone(both);c.notices.unshift('Início 09/2026 (financeiro), 12 meses (PUR), fechamento 09/2026 = mês 1.');c.sources.RHD[2][0]='PUR p.1 (OCR)';c.checks=buildChecks(c);
   assert(!c.checks.some(k=>k.text.startsWith('Início')),'confirmação: aviso informativo não vira pergunta');
   assert(c.checks.some(k=>k.text.includes('divergem')),'confirmação: divergência entre fontes vira pergunta');
