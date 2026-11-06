@@ -71,13 +71,18 @@ export function extract(fin,plan,options){
  if(rh)for(const r of rowsOf(rh)){
   const label=rh.get('A'+r),cat=rubrica(label);const local={};for(let c=1;c<=35;c++){const mat=norm(at(rh,r,c)).match(/^mes\s*(\d{1,2})$/);if(mat)local[+mat[1]-1]=c;}
   if(Object.keys(local).length>=6){group=['RHD','RHI'].includes(cat)?cat:null;head=local;continue;}
-  if(group&&head&&typeof label==='string'&&label.trim()&&label.trim()!=='-')rhParts[group].push({r,label:label.trim(),head});
+  if(group&&head&&typeof label==='string'&&label.trim()&&label.trim()!=='-'){const cost=rh.get('C'+r),value=rh.get('B'+r);
+   // Vaga = cargo + custo-hora (ou valor): dois cargos iguais com custos diferentes são duas vagas.
+   rhParts[group].push({r,label:label.trim(),head,vaga:`${norm(label)}|${typeof cost==='number'?cost.toFixed(2):typeof value==='number'?value.toFixed(2):''}`,etapa:norm(rh.get('D'+r))});}
  }
  for(const cat of ['RHD','RHI'])if(rhParts[cat].length){for(let m=0;m<duration;m++){
-  let sum=0,missing=false;const people=new Set(),refs=[];
-  for(const p of rhParts[cat]){if(!p.head[m]){missing=true;continue;}const a=col(p.head[m])+p.r;const v=cached(rh,a);if(v===null){missing=true;continue;}sum+=v;if(v>0)people.add(norm(p.label));refs.push(a);}
-  set(data,cat,15,m,missing?null:sum,`${rh.name}!${refs.join(',')}`);set(data,cat,10,m,missing?null:people.size,`${rh.name}: funções distintas com horas > 0; conferir vagas com mesma função`);
- }data.notices.push(`${cat}: profissionais previstos foram contados por função distinta. Confira se existem duas ou mais vagas com o mesmo nome de função.`);}
+  // Profissionais = vagas com horas no mês. A mesma vaga em várias etapas conta uma vez; na mesma etapa, cada linha é uma vaga.
+  let sum=0,missing=false;const perEtapa={},refs=[];
+  for(const p of rhParts[cat]){if(!p.head[m]){missing=true;continue;}const a=col(p.head[m])+p.r;const v=cached(rh,a);if(v===null){missing=true;continue;}sum+=v;refs.push(a);
+   if(v>0){const e=(perEtapa[p.etapa]??={});e[p.vaga]=(e[p.vaga]||0)+1;}}
+  const vagas={};for(const e of Object.values(perEtapa))for(const [k,n] of Object.entries(e))vagas[k]=Math.max(vagas[k]||0,n);
+  set(data,cat,15,m,missing?null:sum,`${rh.name}!${refs.join(',')}`);set(data,cat,10,m,missing?null:Object.values(vagas).reduce((a,b)=>a+b,0),`${rh.name}: vagas (cargo + custo-hora) com horas no mês; mesma vaga em várias etapas conta uma vez`);
+ }}
  if(pdf)applyPdf(data,pdf);
  // PUR sem quadro mensal de horas: média das horas totais do detalhamento financeiro pelos meses do projeto.
  for(const [cat,t] of Object.entries(pdf?.rhTotals||{})){
@@ -124,9 +129,10 @@ function applyPdf(data,pdf){
  for(const cat of categories)for(const row of Object.keys(pdf.values[cat]||{}))for(let m=0;m<data.duration;m++){
   const v=pdf.values[cat][row][m];if(v===null||v===undefined)continue;const old=data.values[cat][row][m];
   if(old!==null&&Math.abs(old-v)<=.005)((data.agree??={})[`${cat}|${row}|${m}`]=true);
-  if(old!==null&&Math.abs(old-v)>.005)diverge.push(`${cat} ${inputRows[row]} mês ${m+1}`);
+  // A planilha de apoio aprovada é a referência do previsto: na divergência, ela fica e o PDF vira aviso.
+  if(old!==null&&Math.abs(old-v)>.005){diverge.push(`${cat} ${inputRows[row]} mês ${m+1} (apoio ${old}, PDF ${v})`);continue;}
   set(data,cat,+row,m,v,pdf.sources[cat][row][m]);}
- if(diverge.length)data.notices.push(`PUR em PDF e planilha de apoio divergem em ${diverge.length} campo(s); foi usado o PDF: ${diverge.slice(0,8).join(', ')}${diverge.length>8?'…':''}.`);
+ if(diverge.length)data.notices.push(`PUR em PDF e planilha de apoio divergem em ${diverge.length} campo(s); foi usada a planilha de apoio aprovada: ${diverge.slice(0,8).join(', ')}${diverge.length>8?'…':''}. Confira se a planilha corresponde ao último PUR ou adendo aprovado.`);
  data.notices.push(...pdf.notices);
 }
 /* Planejado de RH quando o PUR só traz totais: horas = total ÷ meses do projeto; profissionais = mesmo número em todos os meses.
