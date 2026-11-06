@@ -123,6 +123,7 @@ function applyPdf(data,pdf){
  const diverge=[];
  for(const cat of categories)for(const row of Object.keys(pdf.values[cat]||{}))for(let m=0;m<data.duration;m++){
   const v=pdf.values[cat][row][m];if(v===null||v===undefined)continue;const old=data.values[cat][row][m];
+  if(old!==null&&Math.abs(old-v)<=.005)((data.agree??={})[`${cat}|${row}|${m}`]=true);
   if(old!==null&&Math.abs(old-v)>.005)diverge.push(`${cat} ${inputRows[row]} mês ${m+1}`);
   set(data,cat,+row,m,v,pdf.sources[cat][row][m]);}
  if(diverge.length)data.notices.push(`PUR em PDF e planilha de apoio divergem em ${diverge.length} campo(s); foi usado o PDF: ${diverge.slice(0,8).join(', ')}${diverge.length>8?'…':''}.`);
@@ -142,13 +143,28 @@ export function spreadPlanned(data,cat,row,total){
 }
 /* Confirmações: todo ponto em que a leitura não é 100% segura vira uma pergunta que o usuário responde antes de exportar.
  * Entram os avisos da extração (exceto os informativos) e, por rubrica, os valores lidos por OCR. */
-const informative=/^(Início \d|PUR em Word serve só para consulta)|^\S+ OCR: soma mensal ([\d.,]+); total impresso \2;|^OCR: Sub-Total do quadro confere em (\d+) de \3 meses\.$/;
+const informative=/^(Início \d|PUR em Word serve só para consulta)|^\S+ OCR: soma mensal ([\d.,]+); total impresso \2;|^OCR: Sub-Total do quadro confere em (\d+) de \3 meses\.$|^Financeiro PUR (\d+) · contrato PUR \4 ·|^OCR: \d+ páginas? sem tabela/;
+/* Avisos que repetem outro ou que não deixam dúvida não viram pergunta. Fica uma pergunta por assunto. */
+export function tidyNotices(data){
+ const rhOk=['RHD','RHI'].every(c=>data.values[c][15].every(v=>v!==null)&&data.values[c][10].every(v=>v!==null));
+ let out=data.notices.filter(n=>!(rhOk&&n.startsWith('O PDF não tem quadro de horas por mês reconhecido')));
+ if(out.some(n=>n.startsWith('Adendo: leitura limitada')))out=out.filter(n=>!n.startsWith('Fonte do adendo: quadros PARA'));
+ const dur=out.filter(n=>/^(Duração deduzida do cronograma|O cronograma indica \d+ meses)/.test(n));
+ if(dur.length>1){out=out.filter(n=>!dur.includes(n));out.push('Duração do projeto: '+dur.join(' '));}
+ const prof=out.filter(n=>/profissionais previstos (no PDF )?foram contados por função distinta/.test(n));
+ if(prof.length>1){out=out.filter(n=>!prof.includes(n));out.push('Profissionais previstos (RHD e RHI) foram contados por função distinta. Confira se existem duas ou mais vagas com o mesmo nome de função.');}
+ data.notices=out;return data;
+}
 export function buildChecks(data){
+ tidyNotices(data);
  const checks=data.notices.filter(n=>!informative.test(n)).map((text,i)=>({id:`aviso-${i+1}`,kind:'aviso',text,answer:null}));
  for(const cat of categories){
-  const cells=[];
-  for(const [row,src] of Object.entries(data.sources[cat]))src.forEach((s,m)=>{if(typeof s==='string'&&s.endsWith('(OCR)')&&data.values[cat][row][m]!==null)cells.push(`${inputRows[row]} M${m+1}`);});
-  if(cells.length)checks.push({id:`ocr-${cat}`,kind:'ocr',cat,text:`${cat}: ${cells.length} ${cells.length===1?'valor lido':'valores lidos'} por OCR (${cells.slice(0,6).join(', ')}${cells.length>6?'…':''}). Confira com o PDF.`,answer:null});
+  const cells=[];let agreed=0;
+  for(const [row,src] of Object.entries(data.sources[cat]))src.forEach((s,m)=>{if(typeof s==='string'&&s.endsWith('(OCR)')&&data.values[cat][row][m]!==null){cells.push(`${inputRows[row]} M${m+1}`);if(data.agree?.[`${cat}|${row}|${m}`])agreed++;}});
+  if(!cells.length)continue;
+  // Todos os valores de OCR iguais aos da planilha de apoio: duas fontes independentes concordam, a pergunta já vem respondida.
+  const auto=agreed===cells.length;
+  checks.push({id:`ocr-${cat}`,kind:'ocr',cat,text:`${cat}: ${cells.length} ${cells.length===1?'valor lido':'valores lidos'} por OCR (${cells.slice(0,6).join(', ')}${cells.length>6?'…':''}). ${auto?'Todos iguais à planilha de apoio.':agreed?`${agreed} iguais à planilha de apoio; confira os demais com o PDF.`:'Confira com o PDF.'}`,answer:auto?'confirmado':null,auto:auto||undefined,answeredAt:auto?new Date().toISOString():null});
  }
  return checks;
 }

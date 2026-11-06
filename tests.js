@@ -1,8 +1,8 @@
-import {categories,NS,openWorkbook,extract,exportWorkbook,missing,calculated,number,month,financialInfo,durationFromText,spreadPlanned,buildChecks,openChecks,answerCheck,cellsForCheck,sourceRef} from './engine.js';
+import {categories,NS,openWorkbook,extract,exportWorkbook,missing,calculated,number,month,financialInfo,durationFromText,spreadPlanned,buildChecks,openChecks,answerCheck,cellsForCheck,sourceRef,tidyNotices} from './engine.js';
 import {pdfPages,parsePur,pdfNumber} from './pur-pdf.js';
 import {readPurPdf,reviewOcr,checkSubtotals,marker,consolidatedReview} from './pur-v2.js';
 import {rhTotals} from './pur-rh.js';
-import {textlessPages,repairNumber,repairHeader,wordsToLines,reconcile,valueColumns,addTitles,fillGaps,clean,skewAngle} from './pur-ocr.js';
+import {gridLines,textlessPages,repairNumber,repairHeader,wordsToLines,reconcile,valueColumns,addTitles,fillGaps,clean,skewAngle} from './pur-ocr.js';
 /* PDF mínimo com texto posicionado (Helvetica), para testar a leitura real pelo pdf.js sem documentos privados. */
 function makePdf(pages){
  const objs=[],enc=s=>s.replace(/\\/g,'\\\\').replace(/\(/g,'\\(').replace(/\)/g,'\\)');
@@ -85,9 +85,21 @@ try{
   assert(cellsForCheck({kind:'aviso',text:'Confira o documento.'},c).length===0,'resolver: aviso sem rubrica nem mês não aponta célula');
   const sr=sourceRef('Posição Financeira!N12');assert(sr.kind==='sheet'&&sr.col==='N'&&sr.row===12,'resolver: fonte na planilha');
   const pr=sourceRef('PUR.pdf, p. 7, linha 3 (OCR)');assert(pr.kind==='pdf'&&pr.page===7&&pr.ocr,'resolver: fonte no PDF');
-  assert(sourceRef('Ajuste manual na conferência (fonte anterior: Aba!B2)').col==='B','resolver: ajuste manual mantém a fonte original');}
+  assert(sourceRef('Ajuste manual na conferência (fonte anterior: Aba!B2)').col==='B','resolver: ajuste manual mantém a fonte original');
+  {const t=structuredClone(c);t.notices=['Fonte do adendo: quadros PARA. Confira.','Adendo: leitura limitada aos trechos identificados como PARA.','Duração deduzida do cronograma do PUR: 9 meses.','O cronograma indica 8 meses; a leitura anterior indicou 9.','Financeiro PUR 589 · contrato PUR 589 · M1 = 03/2026. Confira.','OCR: 12 páginas sem tabela foram puladas (p. 1, 2).'];
+   for(const k of ['RHD','RHI'])for(const r of [10,15])t.values[k][r]=t.values[k][r].map(()=>1);t.notices.push('O PDF não tem quadro de horas por mês reconhecido. Horas ficam pendentes.');
+   tidyNotices(t);assert(!t.notices.some(n=>n.startsWith('Fonte do adendo')),'confirmações: aviso de adendo repetido some');
+   assert(t.notices.filter(n=>/Duração|cronograma indica/.test(n)).length===1,'confirmações: avisos de duração viram um só');
+   assert(!t.notices.some(n=>n.startsWith('O PDF não tem quadro de horas')),'confirmações: falta de quadro de horas não pergunta se as horas foram lidas');
+   const k=buildChecks(t);assert(!k.some(x=>/^Financeiro PUR|^OCR: \d+ páginas/.test(x.text)),'confirmações: PUR igual nos dois arquivos e páginas puladas são só informação');}
+  {const t=structuredClone(c);t.sources.Materiais[2]=t.sources.Materiais[2].map(()=>'PUR p.2 (OCR)');t.agree={};t.values.Materiais[2].forEach((v,m)=>{if(v!==null)t.agree[`Materiais|2|${m}`]=true;});
+   const ok=buildChecks(t).find(x=>x.id==='ocr-Materiais');assert(ok&&ok.answer==='confirmado'&&ok.auto,'confirmações: OCR igual à planilha de apoio já vem conferido');
+   delete t.agree['Materiais|2|0'];const meio=buildChecks(t).find(x=>x.id==='ocr-Materiais');assert(meio.answer===null&&meio.text.includes('iguais à planilha de apoio'),'confirmações: OCR parcialmente igual continua perguntando');}}
  const rotated=parsePur([[{y:1,cells:[{x0:0,x1:5,xc:2,text:'Rubrica'},...Array.from({length:6},(_,i)=>({x0:100+i*40,x1:120+i*40,xc:110+i*40,text:['set/26','out/26','nov/26','dez/26','jan/27','fev/27'][i]}))],text:''},{y:0,cells:[{x0:0,x1:60,xc:30,text:'Materiais de consumo'},{x0:140,x1:160,xc:150,text:'7,5'}],text:''}]],{duration:12,start:month('2026-09')});
  assert(rotated.values.Materiais[2][1]===7.5,'PDF: cabeçalho jan/26 vira mês do projeto');
+ {const w=200,h=120,g=new Uint8Array(w*h).fill(255);for(const y of [10,40,70,100])for(let x=10;x<190;x++)g[y*w+x]=0;for(const x of [10,60,110,160])for(let y=10;y<101;y++)g[y*w+x]=0;
+  const grade=gridLines(g,w,h);assert(grade.h===4&&grade.v===4,'OCR: grade de tabela detectada');
+  const txt=new Uint8Array(w*h).fill(255);for(let y=20;y<100;y+=8)for(let x=10;x<190;x+=3)txt[y*w+x]=0;const t=gridLines(txt,w,h);assert(t.h<3||t.v<3,'OCR: texto corrido não é tabela');}
  const mesAno=['set/26','out/26','nov/26','dez/26','jan/27','fev/27'],semMes=makePdf([[{x:30,y:540,text:'Rubrica'},...mesAno.map((t,i)=>({x:200+i*50,y:540,text:t})),{x:30,y:525,text:'V - Materiais de consumo'},...mesAno.map((_,i)=>({x:200+i*50,y:525,text:'7,50'}))]]);
  const reread=await readPurPdf(new File([semMes],'PUR_mes_ano.pdf',{type:'application/pdf'}),{start:month('2026-09')});
  assert(reread.values.Materiais[2][1]===7.5,'PDF: segunda leitura não falha com buffer desanexado');
